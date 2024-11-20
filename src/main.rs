@@ -68,18 +68,20 @@ enum GameState {
     #[default]
     Loading,
     Game,
-    //NextLevel,
-    //GameOver,
+    NextLevel,
+    GameOver,
 }
 
 fn main() {
     App::new()
     .add_event::<LilGuySelected>()
     .add_event::<LilGuyDeselected>()
+    .add_event::<LilGuySubmitted>()
     .insert_resource(UiActions::default())
     .insert_resource(StopScrolling::default())
     .insert_resource(LilGuySelection::default())
     .insert_resource(ImageHandles::default())
+    .insert_resource(TargetLilGuy::default())
     .add_plugins(DefaultPlugins)
     .insert_state(GameState::default())
     .add_systems(OnEnter(GameState::Loading), (
@@ -99,6 +101,7 @@ fn main() {
         spawn_back_button,
         spawn_send_button,
         spawn_lilguys,
+        choose_target_lilguy,
     ))
     .add_systems(Update, (
         resize_foreground,
@@ -114,9 +117,43 @@ fn main() {
         handle_scrolling,
         handle_lilguy_selected,
         handle_lilguy_deselected,
+        handle_lilguy_submitted,
         debug_draw_buttons,
     ).run_if(in_state(GameState::Game)))
     .run();
+}
+
+#[derive(Resource, Default)]
+struct TargetLilGuy {
+    target_lilguy_id: Option<u8>,
+}
+
+#[derive(Event)]
+struct LilGuySubmitted {
+    lilguy_id_guess: u8,
+}
+
+fn choose_target_lilguy(
+    mut target: ResMut<TargetLilGuy>,
+) {
+    let selected_lilguy: u8 = rand::random();
+    target.target_lilguy_id = Some(selected_lilguy);
+}
+
+fn handle_lilguy_submitted(
+    mut lilguy_submitted: EventReader<LilGuySubmitted>,
+    target: Res<TargetLilGuy>,
+    mut game_state: ResMut<NextState<GameState>>
+) {
+    let Some(target_id) = target.target_lilguy_id else { return; };
+
+    for event in lilguy_submitted.read() {
+        if event.lilguy_id_guess == target_id {
+            game_state.set(GameState::NextLevel);
+        } else {
+            game_state.set(GameState::GameOver);
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -289,9 +326,7 @@ fn spawn_send_button(
 }
 
 #[derive(Component)]
-struct LilGuy {
-    lilguy_id: u8
-}
+struct LilGuy;
 
 fn spawn_lilguys(
     images: Res<ImageHandles>,
@@ -314,9 +349,7 @@ fn spawn_lilguys(
                 transform: Transform::from_translation(position.extend(Z_POS_LIL_GUYS)),
                 ..default()
             },
-            LilGuy {
-                lilguy_id: i as u8,
-            },
+            LilGuy,
             Background::default(),
             Clickable {
                 area: lilguy.bg_click_area,
@@ -491,6 +524,7 @@ fn check_button_clicked(
     mut ui_actions: ResMut<UiActions>,
     mut on_lilguy_selected: EventWriter<LilGuySelected>,
     mut on_lilguy_deselected: EventWriter<LilGuyDeselected>,
+    mut on_lilguy_submitted: EventWriter<LilGuySubmitted>,
 ) {
     if input.just_released(MouseButton::Left) {
         reset_ui_actions(&mut ui_actions);
@@ -541,7 +575,10 @@ fn check_button_clicked(
                 },
             ActionTypes::SendToLab => 
                 if button_pressed {
-                    if let Some(lilguy) = selection.zoomed_lilguy_entity {
+                    if let Some(lilguy) = selection.zoomed_lilguy_id {
+                        _ = on_lilguy_submitted.send(LilGuySubmitted {
+                            lilguy_id_guess: lilguy
+                        });
                         // check if the selection matches the target
                     }
                 },
@@ -639,13 +676,12 @@ fn handle_scrolling(
 }
 
 #[derive(Component)]
-struct ZoomedInLilGuy {
-    lilguy_id: u8
-}
+struct ZoomedInLilGuy;
 
 #[derive(Resource, Default, Debug)]
 struct LilGuySelection {
     zoomed_lilguy_entity: Option<Entity>,
+    zoomed_lilguy_id: Option<u8>,
 }
 
 fn handle_lilguy_selected(
@@ -675,12 +711,11 @@ fn handle_lilguy_selected(
                 transform: Transform::from_translation(FOREGROUND_PORTHOLE_CENTER_POS.extend(Z_POS_MONITORS)),
                 ..default()
             },
-            ZoomedInLilGuy {
-                lilguy_id: event.lilguy_id
-            }
+            ZoomedInLilGuy,
         ));
         
         lilguy_selection.zoomed_lilguy_entity = Some(cmd.id());
+        lilguy_selection.zoomed_lilguy_id = Some(event.lilguy_id);
         stop_scrolling.value = true;
     }
 }
@@ -702,6 +737,7 @@ fn handle_lilguy_deselected(
     }
     if had_events {
         selection.zoomed_lilguy_entity = None;
+        selection.zoomed_lilguy_id = None;
         stop_scrolling.value = false;
     }
 }
