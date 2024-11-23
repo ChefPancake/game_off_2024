@@ -2,6 +2,15 @@ use bevy::{
     color::palettes::css::RED, prelude::*, sprite::MaterialMesh2dBundle, window::WindowResized
 };
 
+/*
+- [ ] track overall position on something other than the bg objects, like a resource
+    - if we can move the resource, then move the bg objects
+- [ ] get end-game states going
+- [ ] add a loading bar to the loading screen
+    - just overlaid rects should work
+*/
+
+const FOREGROUND_TITLE_SCREEN: &str = "TitleScreen.png";
 const FOREGROUND_IMAGE_PATH: &str = "FrontPanel.png";
 const FOREGROUND_IMAGE_SIZE: Vec2 = Vec2::new(3641.0, 2048.0);
 const FOREGROUND_ASPECT_RATIO: f32 = FOREGROUND_IMAGE_SIZE.x / FOREGROUND_IMAGE_SIZE.y;
@@ -22,8 +31,7 @@ const FOREGROUND_SMALL_BUTTON_AREA: Vec2 = Vec2::new(180.0, 180.0);
 const FOREGROUND_PORTHOLE_CENTER_POS: Vec2 = Vec2::new(530.0, 105.0);
 const FOREGROUND_PORTHOLE_RAD: f32 = 780.0;
 
-
-const BACKGROUND_IMAGE_PATH: &str = "Roughback.png";
+const BACKGROUND_IMAGE_PATH: &str = "Background_empty.png";
 const BACKGROUND_IMAGE_SIZE: Vec2 = Vec2::new(16378.0, 2048.0);
 const BACKGROUND_PADDING_SIZE: f32 = 5.0;
 const BACKGROUND_START_POS: Vec2 = Vec2::new(0.0, FOREGROUND_PORTHOLE_CENTER_POS.y);
@@ -49,24 +57,207 @@ struct LilGuyInfo {
     mission_monitor_image_path: &'static str,
 }
 
-const LILGUYS_COUNT: usize = 1;
+const LILGUYS_COUNT: usize = 19;
 const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
     LilGuyInfo {
         spawn_pos: Vec2::new(3000.0, 0.0),
-        bg_image_size: Vec2::new(272.0, 192.0),
+        bg_image_size: Vec2::new(213.0, 147.0),
         bg_click_area: ClickArea::Circular(96.0),
-        zoom_image_size: Vec2::new(377.0, 294.0),
-        bg_image_path: "lilguys_back/Layer 3.png",
-        zoom_image_path: "lilguys_zoomed/Layer 3.png",
-        info_monitor_image_path: "info_monitors/TopScreen_Lollip.png",
-        mission_monitor_image_path: "mission_monitors/BottomScreen_Lollip.png",
+        zoom_image_size: Vec2::new(1293.0, 1003.0),
+        bg_image_path: "lilguys_back/Abogus.png",
+        zoom_image_path: "lilguys_zoomed/Abogus.png",
+        info_monitor_image_path: "info_monitors/Abogus.png",
+        mission_monitor_image_path: "mission_monitors/Abogus.png",
     },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(2500.0, 300.0),
+        bg_image_size: Vec2::new(301.0, 438.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(200.0, 400.0)),
+        zoom_image_size: Vec2::new(970.0, 1404.0),
+        bg_image_path: "lilguys_back/Biblet.png",
+        zoom_image_path: "lilguys_zoomed/Biblet.png",
+        info_monitor_image_path: "info_monitors/Biblet.png",
+        mission_monitor_image_path: "mission_monitors/Biblet.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(2000.0, 100.0),
+        bg_image_size: Vec2::new(373.0, 458.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(300.0, 400.0)),
+        zoom_image_size: Vec2::new(1046.0, 1288.0),
+        bg_image_path: "lilguys_back/Bloober.png",
+        zoom_image_path: "lilguys_zoomed/Bloober.png",
+        info_monitor_image_path: "info_monitors/Bloober.png",
+        mission_monitor_image_path: "mission_monitors/Bloober.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(1500.0, -500.0),
+        bg_image_size: Vec2::new(372.0, 289.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(300.0, 225.0)),
+        zoom_image_size: Vec2::new(1488.0, 868.0),
+        bg_image_path: "lilguys_back/ChetTimbo.png",
+        zoom_image_path: "lilguys_zoomed/ChetTimbo.png",
+        info_monitor_image_path: "info_monitors/ChetTimbo.png",
+        mission_monitor_image_path: "mission_monitors/ChetTimbo.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(1000.0, 150.0),
+        bg_image_size: Vec2::new(385.0, 373.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(300.0, 300.0)),
+        zoom_image_size: Vec2::new(1232.0, 1020.0),
+        bg_image_path: "lilguys_back/Feetta.png",
+        zoom_image_path: "lilguys_zoomed/Feetta.png",
+        info_monitor_image_path: "info_monitors/Feetta.png",
+        mission_monitor_image_path: "mission_monitors/Feetta.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(500.0, -200.0),
+        bg_image_size: Vec2::new(526.0, 625.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(475.0, 575.0)),
+        zoom_image_size: Vec2::new(1187.0, 1402.0),
+        bg_image_path: "lilguys_back/Gloober.png",
+        zoom_image_path: "lilguys_zoomed/Gloober.png",
+        info_monitor_image_path: "info_monitors/Gloober.png",
+        mission_monitor_image_path: "mission_monitors/Gloober.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(000.0, 500.0),
+        bg_image_size: Vec2::new(254.0, 274.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(200.0, 225.0)),
+        zoom_image_size: Vec2::new(1108.0, 1374.0),
+        bg_image_path: "lilguys_back/Golyp.png",
+        zoom_image_path: "lilguys_zoomed/Golyp.png",
+        info_monitor_image_path: "info_monitors/Golyp.png",
+        mission_monitor_image_path: "mission_monitors/Golyp.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-1000.0, 500.0),
+        bg_image_size: Vec2::new(1558.0, 802.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(1500.0, 700.0)),
+        zoom_image_size: Vec2::new(1108.0, 1374.0),
+        bg_image_path: "lilguys_back/Jerry.png",
+        zoom_image_path: "lilguys_zoomed/Jerry.png",
+        info_monitor_image_path: "info_monitors/Jerry.png",
+        mission_monitor_image_path: "mission_monitors/Jerry.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-1500.0, 100.0),
+        bg_image_size: Vec2::new(519.0, 363.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(450.0, 300.0)),
+        zoom_image_size: Vec2::new(1411.0, 995.0),
+        bg_image_path: "lilguys_back/Jurpils.png",
+        zoom_image_path: "lilguys_zoomed/Jurpils.png",
+        info_monitor_image_path: "info_monitors/Jurpils.png",
+        mission_monitor_image_path: "mission_monitors/Jurpils.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-2000.0, 100.0),
+        bg_image_size: Vec2::new(285.0, 302.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(225.0, 250.0)),
+        zoom_image_size: Vec2::new(1320.0, 839.0),
+        bg_image_path: "lilguys_back/Keif.png",
+        zoom_image_path: "lilguys_zoomed/Keif.png",
+        info_monitor_image_path: "info_monitors/Keif.png",
+        mission_monitor_image_path: "mission_monitors/Keif.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-2500.0, 100.0),
+        bg_image_size: Vec2::new(348.0, 463.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(300.0, 425.0)),
+        zoom_image_size: Vec2::new(1077.0, 1327.0),
+        bg_image_path: "lilguys_back/Nyada.png",
+        zoom_image_path: "lilguys_zoomed/Nyada.png",
+        info_monitor_image_path: "info_monitors/Nyada.png",
+        mission_monitor_image_path: "mission_monitors/Nyada.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-3000.0, 100.0),
+        bg_image_size: Vec2::new(246.0, 326.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(200.0, 350.0)),
+        zoom_image_size: Vec2::new(1277.0, 1073.0),
+        bg_image_path: "lilguys_back/Ooples.png",
+        zoom_image_path: "lilguys_zoomed/Ooples.png",
+        info_monitor_image_path: "info_monitors/Ooples.png",
+        mission_monitor_image_path: "mission_monitors/Ooples.png",
+    },
+
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-3500.0, 100.0),
+        bg_image_size: Vec2::new(955.0, 830.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(900.0, 775.0)),
+        zoom_image_size: Vec2::new(1344.0, 1077.0),
+        bg_image_path: "lilguys_back/Patootoo.png",
+        zoom_image_path: "lilguys_zoomed/Patootoo.png",
+        info_monitor_image_path: "info_monitors/Patootoo.png",
+        mission_monitor_image_path: "mission_monitors/Patootoo.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-4000.0, 100.0),
+        bg_image_size: Vec2::new(858.0, 1437.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(800.0, 1375.0)),
+        zoom_image_size: Vec2::new(867.0, 1452.0),
+        bg_image_path: "lilguys_back/Qwoud.png",
+        zoom_image_path: "lilguys_zoomed/Qwoud.png",
+        info_monitor_image_path: "info_monitors/Qwoud.png",
+        mission_monitor_image_path: "mission_monitors/Qwoud.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-4500.0, 100.0),
+        bg_image_size: Vec2::new(195.0, 245.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(150.0, 200.0)),
+        zoom_image_size: Vec2::new(836.0, 1358.0),
+        bg_image_path: "lilguys_back/Snarfblat.png",
+        zoom_image_path: "lilguys_zoomed/Snarfblat.png",
+        info_monitor_image_path: "info_monitors/Snarfblat.png",
+        mission_monitor_image_path: "mission_monitors/Snarfblat.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-5000.0, 100.0),
+        bg_image_size: Vec2::new(721.0, 838.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(650.0, 775.0)),
+        zoom_image_size: Vec2::new(1022.0, 1346.0),
+        bg_image_path: "lilguys_back/Squapple.png",
+        zoom_image_path: "lilguys_zoomed/Squapple.png",
+        info_monitor_image_path: "info_monitors/Squapple.png",
+        mission_monitor_image_path: "mission_monitors/Squapple.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-5500.0, 100.0),
+        bg_image_size: Vec2::new(338.0, 212.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(275.0, 175.0)),
+        zoom_image_size: Vec2::new(1348.0, 974.0),
+        bg_image_path: "lilguys_back/Thit.png",
+        zoom_image_path: "lilguys_zoomed/Thit.png",
+        info_monitor_image_path: "info_monitors/Thit.png",
+        mission_monitor_image_path: "mission_monitors/Thit.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-6000.0, 100.0),
+        bg_image_size: Vec2::new(411.0, 468.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(375.0, 400.0)),
+        zoom_image_size: Vec2::new(659.0, 1351.0),
+        bg_image_path: "lilguys_back/Toober.png",
+        zoom_image_path: "lilguys_zoomed/Toober.png",
+        info_monitor_image_path: "info_monitors/Toober.png",
+        mission_monitor_image_path: "mission_monitors/Toober.png",
+    },
+    LilGuyInfo {
+        spawn_pos: Vec2::new(-6500.0, 100.0),
+        bg_image_size: Vec2::new(170.0, 258.0),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(125.0, 200.0)),
+        zoom_image_size: Vec2::new(1311.0, 837.0),
+        bg_image_path: "lilguys_back/Unkie.png",
+        zoom_image_path: "lilguys_zoomed/Unkie.png",
+        info_monitor_image_path: "info_monitors/Unkie.png",
+        mission_monitor_image_path: "mission_monitors/Unkie.png",
+    },  
 ];
+
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 enum GameState {
     #[default]
     Loading,
+    Title,
     Game,
     NextLevel,
     GameOver,
@@ -90,37 +281,121 @@ fn main() {
     .add_systems(Update, (
         monitor_loading,
     ).run_if(in_state(GameState::Loading)))
-    .add_systems(OnEnter(GameState::Game), (
+    .add_systems(OnEnter(GameState::Title), (
+        spawn_exit_button,
+        spawn_title_screen,
         spawn_camera,
+        spawn_start_button,
+    ))
+    .add_systems(OnExit(GameState::Title), (
+        remove_title_screen,
+        remove_start_button,
+    ))
+    .add_systems(OnEnter(GameState::Game), (
         spawn_faceplate,
         spawn_background,
         spawn_border_blocks,
-        spawn_monitors,
-        spawn_exit_button,
         spawn_scroll_buttons,
         spawn_back_button,
         spawn_send_button,
         spawn_lilguys,
         choose_target_lilguy,
     ))
+    .add_systems(OnEnter(GameState::Game), (
+        spawn_monitors,
+    ).after(choose_target_lilguy))
     .add_systems(Update, (
         resize_foreground,
         close_on_esc,
     ))
     .add_systems(Update, (
         resize_foreground,
-        check_button_clicked,
         scroll_background,
     ).run_if(in_state(GameState::Game)))
     .add_systems(PostUpdate, (
-        handle_exiting,
         handle_scrolling,
         handle_lilguy_selected,
         handle_lilguy_deselected,
         handle_lilguy_submitted,
-        debug_draw_buttons,
     ).run_if(in_state(GameState::Game)))
+    .add_systems(Update, (
+        check_button_clicked,
+    ))
+    .add_systems(PostUpdate, (
+        debug_draw_buttons,
+        handle_exiting,
+    ))
     .run();
+}
+
+fn remove_start_button(
+    buttons: Query<(Entity, &Clickable)>,
+    mut commands: Commands
+) {
+    for (entity, btn) in &buttons {
+        if btn.action == ActionTypes::StartGame {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+fn spawn_start_button(
+    mut commands: Commands,
+) {
+    commands.spawn((
+        SpatialBundle {
+            transform: Transform::from_translation(FOREGROUND_BOTTOM_MONITOR_IMAGE_POS.extend(0.0)),
+            ..default()
+        },
+        Clickable {
+            area: ClickArea::Rectangular(FOREGROUND_BOTTOM_MONITOR_IMAGE_SIZE),
+            action: ActionTypes::StartGame,
+        }
+    ));
+}
+
+fn spawn_camera(
+    mut commands: Commands,
+) {
+    commands.spawn(
+        Camera2dBundle {
+            camera: Camera {
+                clear_color: ClearColorConfig::Custom(Color::BLACK),
+                ..default()
+            },
+            ..default()
+        },
+    );
+}
+
+#[derive(Component)]
+struct TitleScreen;
+
+fn spawn_title_screen(
+    images: Res<ImageHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut commands: Commands,
+) {
+    let Some(title_image) = &images.title_screen else { return; };
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(Rectangle::new(FOREGROUND_IMAGE_SIZE.x, FOREGROUND_IMAGE_SIZE.y)).into(),
+            material: materials.add(title_image.clone()),
+            transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_FACEPLATE)),
+            ..default()
+        },
+        TitleScreen,
+    ));
+}
+
+fn remove_title_screen(
+    query: Query<Entity, With<TitleScreen>>,
+    mut commands: Commands
+) {
+    for entity in &query {
+        commands.entity(entity).despawn();
+    }
 }
 
 #[derive(Resource, Default)]
@@ -136,7 +411,7 @@ struct LilGuySubmitted {
 fn choose_target_lilguy(
     mut target: ResMut<TargetLilGuy>,
 ) {
-    let selected_lilguy: u8 = rand::random();
+    let selected_lilguy: u8 = rand::random::<u8>() % (LILGUYS_COUNT as u8);
     target.target_lilguy_id = Some(selected_lilguy);
 }
 
@@ -158,6 +433,7 @@ fn handle_lilguy_submitted(
 
 #[derive(Resource, Default)]
 struct ImageHandles {
+    title_screen: Option<Handle<Image>>,
     foreground: Option<Handle<Image>>,
     background: Option<Handle<Image>>,
     lilguys_back: [Option<Handle<Image>>; LILGUYS_COUNT],
@@ -170,6 +446,7 @@ fn start_load_images(
     assets: Res<AssetServer>,
     mut handles: ResMut<ImageHandles>,
 ) {
+    handles.title_screen = Some(assets.load(FOREGROUND_TITLE_SCREEN));
     handles.foreground = Some(assets.load(FOREGROUND_IMAGE_PATH));
     handles.background = Some(assets.load(BACKGROUND_IMAGE_PATH));
 
@@ -184,7 +461,7 @@ fn start_load_images(
 fn monitor_loading(
     handles: Res<ImageHandles>,
     assets: Res<AssetServer>,
-    mut game_state: ResMut<NextState<GameState>>,
+    mut game_state: ResMut<NextState<GameState>>
 ) {
     if image_is_not_loaded(&assets, &handles.foreground) {
         return;
@@ -206,27 +483,13 @@ fn monitor_loading(
             return;
         }
     }
-    game_state.set(GameState::Game);
+    game_state.set(GameState::Title);
 }
 
 fn image_is_not_loaded(asset_server: &AssetServer, image_handle: &Option<Handle<Image>>) -> bool {
     use bevy::asset::LoadState;
     let Some(handle) = image_handle else { panic!("Image does not have a handle") };
     return asset_server.get_load_state(handle).is_some_and(|val| val != LoadState::Loaded);
-}
-
-fn spawn_camera(
-    mut commands: Commands,
-) {
-    commands.spawn(
-        Camera2dBundle {
-            camera: Camera {
-                clear_color: ClearColorConfig::Custom(Color::BLACK),
-                ..default()
-            },
-            ..default()
-        },
-    );
 }
 
 // don't want to mess with masking stuff - just going to block off the sides
@@ -270,7 +533,7 @@ enum ClickArea {
     Rectangular(Vec2)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum ActionTypes {
     Exit,
     ScrollLeft,
@@ -278,6 +541,7 @@ enum ActionTypes {
     ZoomLilguy(u8),
     UnZoomLilguy,
     SendToLab,
+    StartGame,
 }
 
 fn spawn_exit_button(
@@ -385,10 +649,12 @@ fn spawn_faceplate(
 
 fn spawn_monitors(
     images: Res<ImageHandles>,
+    target_lilguy: Res<TargetLilGuy>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
 ) {
+    let Some(target_lilguy_id) = target_lilguy.target_lilguy_id else { return; };
     let Some(top_image) = &images.lilguys_info_monitor[0] else { return; };
     let top_material = materials.add(top_image.clone());
 
@@ -401,7 +667,7 @@ fn spawn_monitors(
         }
     );
 
-    let Some(bottom_image) = &images.lilguys_mission_monitor[0] else {return; };
+    let Some(bottom_image) = &images.lilguys_mission_monitor[target_lilguy_id as usize] else {return; };
     let bottom_material = materials.add(bottom_image.clone());
 
     commands.spawn(
@@ -525,6 +791,7 @@ fn check_button_clicked(
     mut on_lilguy_selected: EventWriter<LilGuySelected>,
     mut on_lilguy_deselected: EventWriter<LilGuyDeselected>,
     mut on_lilguy_submitted: EventWriter<LilGuySubmitted>,
+    mut game_state: ResMut<NextState<GameState>>
 ) {
     if input.just_released(MouseButton::Left) {
         reset_ui_actions(&mut ui_actions);
@@ -582,6 +849,7 @@ fn check_button_clicked(
                         // check if the selection matches the target
                     }
                 },
+            ActionTypes::StartGame => game_state.set(GameState::Game),
         };
     }
 }
