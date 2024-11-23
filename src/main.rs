@@ -1,13 +1,16 @@
 use bevy::{
-    color::palettes::css::RED, prelude::*, sprite::MaterialMesh2dBundle, window::WindowResized
+    color::palettes::css::{RED, WHITE_SMOKE}, prelude::*, sprite::MaterialMesh2dBundle, window::WindowResized
 };
 
 /*
-- [ ] track overall position on something other than the bg objects, like a resource
-    - if we can move the resource, then move the bg objects
+- [ ] make the lilguys in the background children of it, then remove the BACKGROUND component from them
+    - they'll move w the background for free
 - [ ] get end-game states going
 - [ ] add a loading bar to the loading screen
     - just overlaid rects should work
+- [ ] add bubble particles
+- [x] Fix clicking behavior
+- [ ] Add paging through info screens
 */
 
 const FOREGROUND_TITLE_SCREEN: &str = "TitleScreen.png";
@@ -41,10 +44,20 @@ const BACKGROUND_SCROLL_MAX_SPEED: f32 = 1200.0;
 const BACKGROUND_SCROLL_ACCEL: f32 = 10000.0;
 const BACKGROUND_SCALE: f32 = (FOREGROUND_PORTHOLE_RAD + BACKGROUND_PADDING_SIZE) * 2.0 / BACKGROUND_IMAGE_SIZE.y;
 
+const PROGRESS_BAR_BORDER_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8, 150.0);
+const PROGRESS_BAR_INTERNAL_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8 - 50.0, 100.0);
+const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 6;
+
+const WIN_SCREEN_IMAGE_PATH: &str = "WinBox.png";
+const LOSE_SCREEN_IMAGE_PATH: &str = "LoseBox.png";
+const NEXT_MISSION_SCREEN_IMAGE_PATH: &str = "NextMissionBox.png";
+const MESSAGE_BOX_IMAGE_SIZE: Vec2 = Vec2::new(1455.0, 1458.0);
+
 const Z_POS_FACEPLATE: f32 = 10.0;
 const Z_POS_MONITORS: f32 = 9.0;
 const Z_POS_BACKGROUND: f32 = 0.0;
 const Z_POS_LIL_GUYS: f32 = 1.0;
+const Z_POS_MESSAGE_BOX: f32 = 11.0;
 
 struct LilGuyInfo {
     spawn_pos: Vec2,
@@ -276,56 +289,218 @@ fn main() {
     .add_plugins(DefaultPlugins)
     .insert_state(GameState::default())
     .add_systems(OnEnter(GameState::Loading), (
+        spawn_camera,
         start_load_images,
+        spawn_progress_bar,
     ))
     .add_systems(Update, (
         monitor_loading,
+        update_progress_bar,
     ).run_if(in_state(GameState::Loading)))
+    .add_systems(OnExit(GameState::Loading), (
+        remove_progress_bar,
+    ))
     .add_systems(OnEnter(GameState::Title), (
         spawn_exit_button,
         spawn_title_screen,
-        spawn_camera,
         spawn_start_button,
     ))
     .add_systems(OnExit(GameState::Title), (
         remove_title_screen,
         remove_start_button,
-    ))
-    .add_systems(OnEnter(GameState::Game), (
         spawn_faceplate,
         spawn_background,
         spawn_border_blocks,
         spawn_scroll_buttons,
         spawn_back_button,
         spawn_send_button,
+    ))
+    .add_systems(OnExit(GameState::Title), (
         spawn_lilguys,
+    ).after(spawn_background))
+    .add_systems(OnEnter(GameState::Game), (
         choose_target_lilguy,
     ))
     .add_systems(OnEnter(GameState::Game), (
         spawn_monitors,
     ).after(choose_target_lilguy))
     .add_systems(Update, (
-        resize_foreground,
-        close_on_esc,
-    ))
-    .add_systems(Update, (
-        resize_foreground,
         scroll_background,
     ).run_if(in_state(GameState::Game)))
     .add_systems(PostUpdate, (
         handle_scrolling,
-        handle_lilguy_selected,
-        handle_lilguy_deselected,
-        handle_lilguy_submitted,
     ).run_if(in_state(GameState::Game)))
+    .add_systems(OnEnter(GameState::NextLevel), (
+        remove_target_lilguy,
+        spawn_winscreen,
+    ))
+    .add_systems(OnExit(GameState::NextLevel), (
+        remove_message_box,
+        // re-enable whatever's needed
+    ))
+    .add_systems(OnEnter(GameState::GameOver), (
+        spawn_losescreen,
+    ))
+    .add_systems(OnExit(GameState::GameOver), (
+        remove_message_box,
+    ))
     .add_systems(Update, (
+        resize_foreground,
+        close_on_esc,
         check_button_clicked,
     ))
     .add_systems(PostUpdate, (
         debug_draw_buttons,
         handle_exiting,
+        handle_lilguy_selected,
+        handle_lilguy_deselected,
+        handle_lilguy_submitted,
     ))
     .run();
+}
+
+#[derive(Component)]
+struct MessageBox;
+
+fn spawn_winscreen(
+    images: Res<ImageHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut commands: Commands,
+) {
+    let Some(image) = &images.win_screen else { return; };
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(Rectangle::new(MESSAGE_BOX_IMAGE_SIZE.x, MESSAGE_BOX_IMAGE_SIZE.y)).into(),
+            material: materials.add(image.clone()),
+            transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_MESSAGE_BOX)),
+            ..default()
+        },
+        MessageBox,
+    ));
+}
+
+fn spawn_losescreen(
+    images: Res<ImageHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut commands: Commands,
+) {
+    let Some(image) = &images.lose_screen else { return; };
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(Rectangle::new(MESSAGE_BOX_IMAGE_SIZE.x, MESSAGE_BOX_IMAGE_SIZE.y)).into(),
+            material: materials.add(image.clone()),
+            transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_MESSAGE_BOX)),
+            ..default()
+        },
+        MessageBox,
+    ));
+}
+
+fn spawn_nextmissionscreen(
+    images: Res<ImageHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut commands: Commands,
+) {
+    let Some(image) = &images.next_mission_screen else { return; };
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(Rectangle::new(MESSAGE_BOX_IMAGE_SIZE.x, MESSAGE_BOX_IMAGE_SIZE.y)).into(),
+            material: materials.add(image.clone()),
+            transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_MESSAGE_BOX)),
+            ..default()
+        },
+        MessageBox,
+    ));
+}
+
+fn remove_message_box(
+    message_boxes: Query<Entity, With<MessageBox>>,
+    mut commands: Commands,
+) {
+    for entity in &message_boxes {
+        commands.entity(entity).despawn();
+    }
+}
+
+fn remove_target_lilguy(
+    lilguys: Query<(Entity, &LilGuy)>,
+    target_lilguy: Res<TargetLilGuy>,
+    selected_lilguy: Res<LilGuySelection>,
+    mut commands: Commands,
+    mut lilguy_deselected: EventWriter<LilGuyDeselected>
+) {
+    let Some(target_lilguy_id) = target_lilguy.target_lilguy_id else { return; };
+    let Some(zoomed_lil_guy_entity) = selected_lilguy.zoomed_lilguy_entity else { return; };
+    for (entity, lilguy) in &lilguys {
+        if lilguy.lilguy_id == target_lilguy_id {
+            commands.entity(entity).despawn();
+            lilguy_deselected.send(LilGuyDeselected { lilguy_entity: zoomed_lil_guy_entity });
+        }
+    }
+}
+
+#[derive(Component)]
+struct ProgressBar {
+    progress_units: usize,
+    total_units: usize,
+}
+
+fn spawn_progress_bar(
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut commands: Commands
+) {
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(Rectangle::new(PROGRESS_BAR_BORDER_SIZE.x, PROGRESS_BAR_BORDER_SIZE.y)).into(),
+            material: materials.add(ColorMaterial::from_color(WHITE_SMOKE)),
+            ..default()
+        },
+        ProgressBar {
+            progress_units: 0,
+            total_units: PROGRESS_BAR_TOTAL_UNITS,
+        }
+    ))
+    .with_children(|cmd| {
+        cmd.spawn(
+            MaterialMesh2dBundle {
+                mesh: meshes.add(Rectangle::new(PROGRESS_BAR_INTERNAL_SIZE.x, PROGRESS_BAR_INTERNAL_SIZE.y)).into(),
+                material: materials.add(ColorMaterial::from_color(RED)),
+                transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_FACEPLATE)),
+                ..default()
+            },
+        );
+    });
+}
+
+fn update_progress_bar(
+    bar_parents: Query<(Entity, &ProgressBar)>,
+    mut bar_children: Query<(&Parent, &mut Transform)>,
+) {
+    const LEFTMOST_EDGE: f32 = PROGRESS_BAR_INTERNAL_SIZE.x / -2.0;
+    for (parent_entity, bar) in &bar_parents {
+        for (bar_parent, mut bar_trans) in &mut bar_children {
+            if **bar_parent == parent_entity {
+                let new_width = PROGRESS_BAR_INTERNAL_SIZE.x * bar.progress_units as f32 / bar.total_units as f32;
+                let new_x_pos = LEFTMOST_EDGE + new_width / 2.0;
+                let new_scale = new_width / PROGRESS_BAR_INTERNAL_SIZE.x;
+                bar_trans.translation.x = new_x_pos;
+                bar_trans.scale.x = new_scale;
+            }
+        }
+    }
+}
+
+fn remove_progress_bar(
+    bars: Query<Entity, With<ProgressBar>>,
+    mut commands: Commands,
+) {
+    for bar in &bars {
+        commands.entity(bar).despawn_recursive();
+    }
 }
 
 fn remove_start_button(
@@ -350,6 +525,7 @@ fn spawn_start_button(
         Clickable {
             area: ClickArea::Rectangular(FOREGROUND_BOTTOM_MONITOR_IMAGE_SIZE),
             action: ActionTypes::StartGame,
+            behavior: ClickBehaviors::SingleClick,
         }
     ));
 }
@@ -436,6 +612,9 @@ struct ImageHandles {
     title_screen: Option<Handle<Image>>,
     foreground: Option<Handle<Image>>,
     background: Option<Handle<Image>>,
+    win_screen: Option<Handle<Image>>,
+    lose_screen: Option<Handle<Image>>,
+    next_mission_screen: Option<Handle<Image>>,
     lilguys_back: [Option<Handle<Image>>; LILGUYS_COUNT],
     lilguys_zoomed: [Option<Handle<Image>>; LILGUYS_COUNT],
     lilguys_info_monitor: [Option<Handle<Image>>; LILGUYS_COUNT],
@@ -449,47 +628,70 @@ fn start_load_images(
     handles.title_screen = Some(assets.load(FOREGROUND_TITLE_SCREEN));
     handles.foreground = Some(assets.load(FOREGROUND_IMAGE_PATH));
     handles.background = Some(assets.load(BACKGROUND_IMAGE_PATH));
+    handles.win_screen = Some(assets.load(WIN_SCREEN_IMAGE_PATH));
+    handles.lose_screen = Some(assets.load(LOSE_SCREEN_IMAGE_PATH));
+    handles.next_mission_screen = Some(assets.load(NEXT_MISSION_SCREEN_IMAGE_PATH));
 
     for i in 0..LILGUYS_COUNT {
         handles.lilguys_back[i] = Some(assets.load(LILGUYS_BESTIARY[i].bg_image_path));
         handles.lilguys_zoomed[i] = Some(assets.load(LILGUYS_BESTIARY[i].zoom_image_path));
         handles.lilguys_info_monitor[i] = Some(assets.load(LILGUYS_BESTIARY[i].info_monitor_image_path));
-        handles.lilguys_mission_monitor[i] = Some(assets.load(LILGUYS_BESTIARY[i].mission_monitor_image_path));   
+        handles.lilguys_mission_monitor[i] = Some(assets.load(LILGUYS_BESTIARY[i].mission_monitor_image_path));
     }
 }
 
 fn monitor_loading(
     handles: Res<ImageHandles>,
     assets: Res<AssetServer>,
-    mut game_state: ResMut<NextState<GameState>>
+    mut game_state: ResMut<NextState<GameState>>,
+    mut progress: Query<&mut ProgressBar>,
 ) {
-    if image_is_not_loaded(&assets, &handles.foreground) {
-        return;
+    let mut current_progress = 0;
+
+    if image_is_loaded(&assets, &handles.title_screen) {
+        current_progress += 1;
     }
-    if image_is_not_loaded(&assets, &handles.background) {
-        return;
+    if image_is_loaded(&assets, &handles.foreground) {
+        current_progress += 1;
+    }
+    if image_is_loaded(&assets, &handles.background) {
+        current_progress += 1;
+    }
+    if image_is_loaded(&assets, &handles.win_screen) {
+        current_progress += 1;
+    }
+    if image_is_loaded(&assets, &handles.lose_screen) {
+        current_progress += 1;
+    }
+    if image_is_loaded(&assets, &handles.next_mission_screen) {
+        current_progress += 1;
     }
     for i in 0..LILGUYS_COUNT {
-        if image_is_not_loaded(&assets, &handles.lilguys_back[i]) {
-            return;
+        if image_is_loaded(&assets, &handles.lilguys_back[i]) {
+            current_progress += 1;
         }
-        if image_is_not_loaded(&assets, &handles.lilguys_zoomed[i]) {
-            return;
+        if image_is_loaded(&assets, &handles.lilguys_zoomed[i]) {
+            current_progress += 1;
         }
-        if image_is_not_loaded(&assets, &handles.lilguys_info_monitor[i]) {
-            return;
+        if image_is_loaded(&assets, &handles.lilguys_info_monitor[i]) {
+            current_progress += 1;
         }
-        if image_is_not_loaded(&assets, &handles.lilguys_mission_monitor[i]) {
-            return;
+        if image_is_loaded(&assets, &handles.lilguys_mission_monitor[i]) {
+            current_progress += 1;
         }
     }
-    game_state.set(GameState::Title);
+    for mut progress in &mut progress {
+        progress.progress_units = current_progress;
+    }
+    if current_progress >= PROGRESS_BAR_TOTAL_UNITS {
+        game_state.set(GameState::Title);
+    }
 }
 
-fn image_is_not_loaded(asset_server: &AssetServer, image_handle: &Option<Handle<Image>>) -> bool {
+fn image_is_loaded(asset_server: &AssetServer, image_handle: &Option<Handle<Image>>) -> bool {
     use bevy::asset::LoadState;
     let Some(handle) = image_handle else { panic!("Image does not have a handle") };
-    return asset_server.get_load_state(handle).is_some_and(|val| val != LoadState::Loaded);
+    return asset_server.get_load_state(handle).is_some_and(|val| val == LoadState::Loaded);
 }
 
 // don't want to mess with masking stuff - just going to block off the sides
@@ -521,10 +723,17 @@ fn spawn_border_blocks(
     );
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ClickBehaviors {
+    SingleClick,
+    ClickAndHold,
+}
+
 #[derive(Component, Clone)]
 struct Clickable {
     area: ClickArea,
     action: ActionTypes,
+    behavior: ClickBehaviors,
 }
 
 #[derive(Clone, Copy)]
@@ -555,6 +764,7 @@ fn spawn_exit_button(
         Clickable {
             area: ClickArea::Rectangular(FOREGROUND_SMALL_BUTTON_AREA),
             action: ActionTypes::Exit,
+            behavior: ClickBehaviors::SingleClick,
         }
     ));
 }
@@ -570,6 +780,7 @@ fn spawn_back_button(
         Clickable {
             area: ClickArea::Rectangular(FOREGROUND_BACK_BUTTON_AREA),
             action: ActionTypes::UnZoomLilguy,
+            behavior: ClickBehaviors::SingleClick,
         }
     ));
 }
@@ -585,19 +796,26 @@ fn spawn_send_button(
         Clickable {
             area: ClickArea::Rectangular(FOREGROUND_SEND_BUTTON_AREA),
             action: ActionTypes::SendToLab,
+            behavior: ClickBehaviors::SingleClick,
         }
     ));
 }
 
 #[derive(Component)]
-struct LilGuy;
+struct LilGuy {
+    lilguy_id: u8,
+}
 
 fn spawn_lilguys(
+    background: Query<Entity, With<Background>>,
     images: Res<ImageHandles>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
 ) {
+    let Ok(bg_entity) = background.get_single() else { return; };
+    let mut bg_cmd = commands.entity(bg_entity);
+
     for i in 0..LILGUYS_COUNT {   
         let lilguy = &LILGUYS_BESTIARY[i];
 
@@ -606,23 +824,26 @@ fn spawn_lilguys(
         let size = &lilguy.bg_image_size;
         let position = lilguy.spawn_pos;
         
-        commands.spawn((
-            MaterialMesh2dBundle {
-                mesh: meshes.add(Rectangle::new(size.x, size.y)).into(),
-                material,
-                transform: Transform::from_translation(position.extend(Z_POS_LIL_GUYS)),
-                ..default()
-            },
-            LilGuy,
-            Background::default(),
-            Clickable {
-                area: lilguy.bg_click_area,
-                action: ActionTypes::ZoomLilguy(i as u8),
-            }
-        ));
+        bg_cmd.with_children(|cmd| {
+            cmd.spawn((
+                MaterialMesh2dBundle {
+                    mesh: meshes.add(Rectangle::new(size.x, size.y)).into(),
+                    material,
+                    transform: Transform::from_translation(position.extend(Z_POS_LIL_GUYS)),
+                    ..default()
+                },
+                LilGuy {
+                    lilguy_id: i as u8
+                },
+                Clickable {
+                    area: lilguy.bg_click_area,
+                    action: ActionTypes::ZoomLilguy(i as u8),
+                    behavior: ClickBehaviors::SingleClick,
+                }
+            ));
+        });
     }
 }
-
 
 #[derive(Component)]
 struct Faceplate;
@@ -717,6 +938,7 @@ fn spawn_scroll_buttons(
         Clickable {
             area: ClickArea::Rectangular(FOREGROUND_SMALL_BUTTON_AREA),
             action: ActionTypes::ScrollLeft,
+            behavior: ClickBehaviors::ClickAndHold,
         },
     ));
 
@@ -728,6 +950,7 @@ fn spawn_scroll_buttons(
         Clickable {
             area: ClickArea::Rectangular(FOREGROUND_SMALL_BUTTON_AREA),
             action: ActionTypes::ScrollRight,
+            behavior: ClickBehaviors::ClickAndHold,
         }
     ));
 }
@@ -791,7 +1014,7 @@ fn check_button_clicked(
     mut on_lilguy_selected: EventWriter<LilGuySelected>,
     mut on_lilguy_deselected: EventWriter<LilGuyDeselected>,
     mut on_lilguy_submitted: EventWriter<LilGuySubmitted>,
-    mut game_state: ResMut<NextState<GameState>>
+    mut game_state: ResMut<NextState<GameState>>,
 ) {
     if input.just_released(MouseButton::Left) {
         reset_ui_actions(&mut ui_actions);
@@ -800,6 +1023,7 @@ fn check_button_clicked(
     if !input.pressed(MouseButton::Left) {
         return;
     }
+    let just_clicked = input.just_pressed(MouseButton::Left);
 
     for (btn_transform, btn) in &btns {
         let Ok(window) = windows.get_single() else { 
@@ -815,13 +1039,20 @@ fn check_button_clicked(
             return;
         };
         
+        let (scale, _, _) = btn_transform.to_scale_rotation_translation();
+
         let button_pressed =
+            match btn.behavior {
+                ClickBehaviors::SingleClick => just_clicked,
+                ClickBehaviors::ClickAndHold => true,
+            }
+            &&
             match btn.area {
                 ClickArea::Circular(radius) => 
-                    btn_transform.translation().xy().distance_squared(cursor_pos) < (radius * radius),
+                    btn_transform.translation().xy().distance_squared(cursor_pos) < (radius * radius * scale.x * scale.y),
                 ClickArea::Rectangular(area) => 
-                    (btn_transform.translation().x - cursor_pos.x).abs() < area.x / 2.0
-                    && (btn_transform.translation().y - cursor_pos.y).abs() < area.y / 2.0,
+                    (btn_transform.translation().x - cursor_pos.x).abs() < scale.x * area.x / 2.0
+                    && (btn_transform.translation().y - cursor_pos.y).abs() < scale.y * area.y / 2.0,
             };
 
         let cursor_in_porthole =
@@ -849,7 +1080,7 @@ fn check_button_clicked(
                         // check if the selection matches the target
                     }
                 },
-            ActionTypes::StartGame => game_state.set(GameState::Game),
+            ActionTypes::StartGame => if button_pressed { game_state.set(GameState::Game) },
         };
     }
 }
@@ -1015,9 +1246,11 @@ fn debug_draw_buttons(
     buttons: Query<(&GlobalTransform, &Clickable)>,
 ) {
     for (button_pos, button) in &buttons {
+        // it's assumed that everything except the progress bar is scaled squarely
+        let (scale, _, _) = button_pos.to_scale_rotation_translation();
         match button.area {
-            ClickArea::Circular(rads) => { gizmos.circle_2d(button_pos.translation().xy(), rads, RED); },
-            ClickArea::Rectangular(area) => { gizmos.rect_2d(button_pos.translation().xy(), Rot2::IDENTITY, area, RED); },
+            ClickArea::Circular(rads) => { gizmos.circle_2d(button_pos.translation().xy(), rads * scale.x, RED); },
+            ClickArea::Rectangular(area) => { gizmos.rect_2d(button_pos.translation().xy(), Rot2::IDENTITY, area * scale.x, RED); },
         }
     }
 }
