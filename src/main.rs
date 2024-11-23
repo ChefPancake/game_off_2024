@@ -6,7 +6,7 @@ use bevy::{
 - [ ] make the lilguys in the background children of it, then remove the BACKGROUND component from them
     - they'll move w the background for free
 - [ ] get end-game states going
-- [ ] add a loading bar to the loading screen
+- [x] add a loading bar to the loading screen
     - just overlaid rects should work
 - [ ] add bubble particles
 - [x] Fix clicking behavior
@@ -34,7 +34,7 @@ const FOREGROUND_SMALL_BUTTON_AREA: Vec2 = Vec2::new(180.0, 180.0);
 const FOREGROUND_PORTHOLE_CENTER_POS: Vec2 = Vec2::new(530.0, 105.0);
 const FOREGROUND_PORTHOLE_RAD: f32 = 780.0;
 
-const BACKGROUND_IMAGE_PATH: &str = "Background_empty.png";
+const BACKGROUND_IMAGE_PATH: &str = "Background_empty_smaller.png";
 const BACKGROUND_IMAGE_SIZE: Vec2 = Vec2::new(16378.0, 2048.0);
 const BACKGROUND_PADDING_SIZE: f32 = 5.0;
 const BACKGROUND_START_POS: Vec2 = Vec2::new(0.0, FOREGROUND_PORTHOLE_CENTER_POS.y);
