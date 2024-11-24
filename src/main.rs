@@ -1,5 +1,7 @@
+use std::thread::current;
+
 use bevy::{
-    prelude::*, sprite::MaterialMesh2dBundle, window::WindowResized
+    asset::UntypedAssetId, prelude::*, sprite::MaterialMesh2dBundle, window::{WindowResized, WindowResolution}
 };
 
 /*
@@ -16,6 +18,13 @@ use bevy::{
 - [x] Fix clicking behavior
 - [x] Debug scroll buttons not working
 
+- [ ] audio
+    - [ ] buttons
+    - [ ] music
+    - [ ] bubble sound
+    - [ ] victory sound
+    - [ ] fail sound
+- [ ] fix exit button on title screen
 - [ ] add bubble particles
 */
 
@@ -43,7 +52,7 @@ const FOREGROUND_SMALL_BUTTON_AREA: Vec2 = Vec2::new(180.0, 180.0);
 const FOREGROUND_PORTHOLE_CENTER_POS: Vec2 = Vec2::new(530.0, 105.0);
 const FOREGROUND_PORTHOLE_RAD: f32 = 780.0;
 
-const BACKGROUND_IMAGE_PATH: &str = "Background_empty_smaller.png";
+const BACKGROUND_IMAGE_PATH: &str = "Background_empty_smallest.png";
 const BACKGROUND_IMAGE_SIZE: Vec2 = Vec2::new(16378.0, 2048.0);
 const BACKGROUND_PADDING_SIZE: f32 = 5.0;
 const BACKGROUND_START_POS: Vec2 = Vec2::new(0.0, FOREGROUND_PORTHOLE_CENTER_POS.y);
@@ -57,7 +66,7 @@ const BACKGROUND_COLOR: Color = Color::Srgba(Srgba { red: 0.2421875, green: 0.37
 
 const PROGRESS_BAR_BORDER_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8, 150.0);
 const PROGRESS_BAR_INTERNAL_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8 - 50.0, 100.0);
-const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 6;
+const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 6 + 1;
 const PROGRESS_BAR_BORDER_COLOR: Color = Color::Srgba(Srgba { red: 0.99609375, green: 0.65234375, blue: 0.16796875, alpha: 1.0, });
 const PROGRESS_BAR_INTERNAL_COLOR: Color = Color::Srgba(Srgba { red: 0.0, green: 0.40234375, blue: 0.44921875, alpha: 1.0, });
 
@@ -77,6 +86,8 @@ const Z_POS_MONITORS: f32 = 9.0;
 const Z_POS_SELECTED_OVERLAY: f32 = 8.0;
 const Z_POS_BACKGROUND: f32 = 0.0;
 const Z_POS_LIL_GUYS: f32 = 1.0;
+
+const MUSIC_AUDIO_PATH: &str = "audio/BackingTrack.downsampled.wav";
 
 struct LilGuyInfo {
     spawn_pos: Vec2,
@@ -325,14 +336,33 @@ fn main() {
     .insert_resource(StopScrolling::default())
     .insert_resource(LilGuySelection::default())
     .insert_resource(ImageHandles::default())
+    .insert_resource(AudioHandles::default())
     .insert_resource(TargetLilGuy::default())
     .insert_resource(CurrentInfoPage::default())
     .insert_resource(CorrectSubmissions::default())
-    .add_plugins(DefaultPlugins)
+    .add_plugins(
+        DefaultPlugins.set(
+            WindowPlugin {
+                primary_window: Some(Window {
+                    title: "KEEP YOUR SEA CRITS".to_string(),
+                    fit_canvas_to_parent: true,
+                    resolution: WindowResolution::new(859.0, 643.0),
+                    ..default()
+                }),
+                ..default()
+            }
+        ).set(
+            AssetPlugin {
+                meta_check: bevy::asset::AssetMetaCheck::Never,
+                ..default()
+            }
+        )
+    )
     .insert_state(GameState::default())
     .add_systems(OnEnter(GameState::Loading), (
         spawn_camera,
         start_load_images,
+        start_load_audio,
         spawn_progress_bar,
     ))
     .add_systems(Update, (
@@ -341,6 +371,7 @@ fn main() {
     ).run_if(in_state(GameState::Loading)))
     .add_systems(OnExit(GameState::Loading), (
         remove_progress_bar,
+        start_playing_music,
     ))
     .add_systems(OnEnter(GameState::Title), (
         spawn_exit_button,
@@ -428,6 +459,20 @@ fn main() {
         handle_lilguy_submitted,
     ))
     .run();
+}
+
+fn start_playing_music(
+    audio: Res<AudioHandles>,
+    mut commands: Commands
+) {
+    let Some(music_handle) = &audio.bg_music else { return; };
+    commands.spawn(
+        AudioBundle {
+            source: music_handle.clone(),
+            settings: PlaybackSettings::LOOP,
+            ..default()
+        }
+    );
 }
 
 #[derive(Resource, Default)]
@@ -819,6 +864,18 @@ fn handle_lilguy_submitted(
 }
 
 #[derive(Resource, Default)]
+struct AudioHandles {
+    bg_music: Option<Handle<AudioSource>>,
+}
+
+fn start_load_audio(
+    asset_server: Res<AssetServer>,
+    mut audio_handles: ResMut<AudioHandles>,
+) {
+    audio_handles.bg_music = Some(asset_server.load(MUSIC_AUDIO_PATH));
+}
+
+#[derive(Resource, Default)]
 struct ImageHandles {
     title_screen: Option<Handle<Image>>,
     foreground: Option<Handle<Image>>,
@@ -852,42 +909,46 @@ fn start_load_images(
 }
 
 fn monitor_loading(
-    handles: Res<ImageHandles>,
+    images: Res<ImageHandles>,
+    audio: Res<AudioHandles>,
     assets: Res<AssetServer>,
     mut game_state: ResMut<NextState<GameState>>,
     mut progress: Query<&mut ProgressBar>,
 ) {
     let mut current_progress = 0;
 
-    if image_is_loaded(&assets, &handles.title_screen) {
+    if asset_is_loaded(&assets, &audio.bg_music) {
         current_progress += 1;
     }
-    if image_is_loaded(&assets, &handles.foreground) {
+    if asset_is_loaded(&assets, &images.title_screen) {
         current_progress += 1;
     }
-    if image_is_loaded(&assets, &handles.background) {
+    if asset_is_loaded(&assets, &images.foreground) {
         current_progress += 1;
     }
-    if image_is_loaded(&assets, &handles.win_screen) {
+    if asset_is_loaded(&assets, &images.background) {
         current_progress += 1;
     }
-    if image_is_loaded(&assets, &handles.lose_screen) {
+    if asset_is_loaded(&assets, &images.win_screen) {
         current_progress += 1;
     }
-    if image_is_loaded(&assets, &handles.next_mission_screen) {
+    if asset_is_loaded(&assets, &images.lose_screen) {
+        current_progress += 1;
+    }
+    if asset_is_loaded(&assets, &images.next_mission_screen) {
         current_progress += 1;
     }
     for i in 0..LILGUYS_COUNT {
-        if image_is_loaded(&assets, &handles.lilguys_back[i]) {
+        if asset_is_loaded(&assets, &images.lilguys_back[i]) {
             current_progress += 1;
         }
-        if image_is_loaded(&assets, &handles.lilguys_zoomed[i]) {
+        if asset_is_loaded(&assets, &images.lilguys_zoomed[i]) {
             current_progress += 1;
         }
-        if image_is_loaded(&assets, &handles.lilguys_info_monitor[i]) {
+        if asset_is_loaded(&assets, &images.lilguys_info_monitor[i]) {
             current_progress += 1;
         }
-        if image_is_loaded(&assets, &handles.lilguys_mission_monitor[i]) {
+        if asset_is_loaded(&assets, &images.lilguys_mission_monitor[i]) {
             current_progress += 1;
         }
     }
@@ -899,7 +960,7 @@ fn monitor_loading(
     }
 }
 
-fn image_is_loaded(asset_server: &AssetServer, image_handle: &Option<Handle<Image>>) -> bool {
+fn asset_is_loaded<T: Asset>(asset_server: &AssetServer, image_handle: &Option<Handle<T>>) -> bool {
     use bevy::asset::LoadState;
     let Some(handle) = image_handle else { panic!("Image does not have a handle") };
     return asset_server.get_load_state(handle).is_some_and(|val| val == LoadState::Loaded);

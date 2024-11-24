@@ -1,10 +1,13 @@
 [package]
 name = "game_off_2024"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = "0.14"
+bevy = { version = "0.14", features = ["wav"] }
 rand = "0.8"
+
+[profile.release]
+opt-level = "s"
