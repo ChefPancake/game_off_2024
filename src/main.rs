@@ -1,7 +1,10 @@
-use std::thread::current;
-
 use bevy::{
-    asset::UntypedAssetId, prelude::*, sprite::MaterialMesh2dBundle, window::{WindowResized, WindowResolution}
+    prelude::*, 
+    sprite::MaterialMesh2dBundle, 
+    window::{
+        WindowResized, 
+        WindowResolution
+    }
 };
 
 /*
@@ -20,7 +23,7 @@ use bevy::{
 
 - [ ] audio
     - [ ] buttons
-    - [ ] music
+    - [x] music
     - [ ] bubble sound
     - [ ] victory sound
     - [ ] fail sound
@@ -374,13 +377,14 @@ fn main() {
         start_playing_music,
     ))
     .add_systems(OnEnter(GameState::Title), (
-        spawn_exit_button,
+        remove_game_items,
         spawn_title_screen,
         spawn_start_button,
     ))
     .add_systems(OnExit(GameState::Title), (
         remove_title_screen,
         remove_start_button,
+        spawn_exit_button,
         spawn_faceplate,
         spawn_background,
         spawn_border_blocks,
@@ -389,6 +393,7 @@ fn main() {
         spawn_send_button,
         spawn_info_buttons,
         spawn_monitors,
+        reset_submissions,
     ))
     .add_systems(OnExit(GameState::Title), (
         spawn_lilguys,
@@ -448,12 +453,11 @@ fn main() {
     ).after(remove_lilguys))
     .add_systems(Update, (
         resize_foreground,
-        close_on_esc,
+        deselect_on_esc,
         check_button_clicked,
     ))
     .add_systems(PostUpdate, (
         // debug_draw_buttons,
-        handle_exiting,
         handle_lilguy_selected,
         handle_lilguy_deselected,
         handle_lilguy_submitted,
@@ -504,6 +508,7 @@ fn spawn_winscreen(
             ..default()
         },
         MessageBox,
+        GameItem,
     ));
     commands.spawn((
         MaterialMesh2dBundle {
@@ -513,6 +518,7 @@ fn spawn_winscreen(
             ..default()
         },
         MessageOverlay,
+        GameItem,
     ));
 }
 
@@ -560,7 +566,8 @@ fn spawn_message_buttons(
             active_on: ActiveStates::Message,
             behavior: ClickBehaviors::SingleClick,
         },
-        MessageButton
+        MessageButton,
+        GameItem,
     ));
     commands.spawn((
         SpatialBundle {
@@ -569,11 +576,12 @@ fn spawn_message_buttons(
         },
         Clickable {
             area: ClickArea::Rectangular(MESSAGE_EXIT_BUTTON_SIZE),
-            action: ActionTypes::Exit,
+            action: ActionTypes::ReturnToTitle,
             active_on: ActiveStates::Message,
             behavior: ClickBehaviors::SingleClick,
         },
-        MessageButton
+        MessageButton,
+        GameItem,
     ));
 }
 
@@ -601,6 +609,7 @@ fn spawn_losescreen(
             ..default()
         },
         MessageBox,
+        GameItem,
     ));
     commands.spawn((
         MaterialMesh2dBundle {
@@ -610,6 +619,7 @@ fn spawn_losescreen(
             ..default()
         },
         MessageOverlay,
+        GameItem,
     ));
 }
 
@@ -628,6 +638,7 @@ fn spawn_nextmissionscreen(
             ..default()
         },
         MessageBox,
+        GameItem,
     ));
     commands.spawn((
         MaterialMesh2dBundle {
@@ -637,6 +648,7 @@ fn spawn_nextmissionscreen(
             ..default()
         },
         MessageOverlay,
+        GameItem,
     ));
 }
 
@@ -753,7 +765,8 @@ fn spawn_start_button(
             action: ActionTypes::StartGame,
             behavior: ClickBehaviors::SingleClick,
             active_on: ActiveStates::Title,
-        }
+        },
+        GameItem,
     ));
 }
 
@@ -975,23 +988,25 @@ fn spawn_border_blocks(
     let mesh = Rectangle::new(FOREGROUND_IMAGE_SIZE.x, FOREGROUND_IMAGE_SIZE.y);
     let material = materials.add(ColorMaterial::from_color(BACKGROUND_COLOR));
 
-    commands.spawn(
+    commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(mesh).into(),
             material: material.clone(),
             transform: Transform::from_translation(Vec3::new(FOREGROUND_IMAGE_SIZE.x, 0.0, Z_POS_MONITORS)),
             ..default()
-        }
-    );
+        },
+        GameItem,
+    ));
 
-    commands.spawn(
+    commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(mesh).into(),
             material,
             transform: Transform::from_translation(Vec3::new(-FOREGROUND_IMAGE_SIZE.x, 0.0, Z_POS_MONITORS)),
             ..default()
-        }
-    );
+        },
+        GameItem,
+    ));
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1016,7 +1031,7 @@ enum ClickArea {
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ActionTypes {
-    Exit,
+    ReturnToTitle,
     ScrollLeft,
     ScrollRight,
     ZoomLilguy(u8),
@@ -1037,11 +1052,8 @@ enum ActiveStates {
     Message = 4,
 }
 
-// impl std::ops::BitOr for ActiveStates {
-//     fn bitor(self, rhs: Self) -> Self {
-//         (self as u8 | rhs as u8) as ActiveStates
-//     }
-// }
+#[derive(Component)]
+struct ExitButton;
 
 fn spawn_exit_button(
     mut commands: Commands,
@@ -1053,11 +1065,25 @@ fn spawn_exit_button(
         },
         Clickable {
             area: ClickArea::Rectangular(FOREGROUND_SMALL_BUTTON_AREA),
-            action: ActionTypes::Exit,
+            action: ActionTypes::ReturnToTitle,
             behavior: ClickBehaviors::SingleClick,
-            active_on: ActiveStates::Game, // | ActiveStates::Title,
-        }
+            active_on: ActiveStates::Game,
+        },
+        ExitButton,
+        GameItem,
     ));
+}
+
+#[derive(Component)]
+struct GameItem;
+
+fn remove_game_items(
+    items: Query<Entity, With<GameItem>>,
+    mut commands: Commands
+) {
+    for item in &items {
+        commands.entity(item).despawn_recursive();
+    }
 }
 
 fn spawn_back_button(
@@ -1073,7 +1099,8 @@ fn spawn_back_button(
             action: ActionTypes::UnZoomLilguy,
             behavior: ClickBehaviors::SingleClick,
             active_on: ActiveStates::Game,
-        }
+        },
+        GameItem,
     ));
 }
 
@@ -1116,15 +1143,16 @@ fn spawn_info_buttons(
     [
         (
             SpatialBundle {
-            transform: Transform::from_translation(FOREGROUND_INFO_PAGELEFT_POS.extend(0.0)),
-            ..default()
+                transform: Transform::from_translation(FOREGROUND_INFO_PAGELEFT_POS.extend(0.0)),
+                ..default()
             },
             Clickable {
                 area: ClickArea::Circular(FOREGROUND_INFO_BUTTON_RAD),
                 action: ActionTypes::InfoPageLeft,
                 behavior: ClickBehaviors::SingleClick,
                 active_on: ActiveStates::Game,
-            }
+            },
+            GameItem,
         ),
         (
             SpatialBundle {
@@ -1136,7 +1164,8 @@ fn spawn_info_buttons(
                 action: ActionTypes::InfoPageRight,
                 behavior: ClickBehaviors::SingleClick,
                 active_on: ActiveStates::Game,
-            }
+            },
+            GameItem,
         ),
     ]);
 }
@@ -1154,7 +1183,8 @@ fn spawn_send_button(
             action: ActionTypes::SendToLab,
             behavior: ClickBehaviors::SingleClick,
             active_on: ActiveStates::Game,
-        }
+        },
+        GameItem,
     ));
 }
 
@@ -1239,6 +1269,7 @@ fn spawn_faceplate(
             ..default()
         },
         Faceplate,
+        GameItem,
     ));
 }
 
@@ -1265,6 +1296,7 @@ fn spawn_monitors(
             ..default()
         },
         InfoMonitor,
+        GameItem,
     ));
 
     let Some(bottom_image) = &images.lilguys_mission_monitor[0] else { return; };
@@ -1278,6 +1310,7 @@ fn spawn_monitors(
             ..default()
         },
         MissionMonitor,
+        GameItem,
     ));
 }
 
@@ -1318,7 +1351,8 @@ fn spawn_background(
             transform: Transform::from_translation(BACKGROUND_START_POS.extend(Z_POS_BACKGROUND)).with_scale(Vec3::new(BACKGROUND_SCALE, BACKGROUND_SCALE, 1.0)),
             ..default()
         },
-        Background::default()
+        Background::default(),
+        GameItem,
     ));
 }
 
@@ -1336,6 +1370,7 @@ fn spawn_scroll_buttons(
             behavior: ClickBehaviors::ClickAndHold,
             active_on: ActiveStates::Game,
         },
+        GameItem,
     ));
 
     commands.spawn((
@@ -1348,16 +1383,17 @@ fn spawn_scroll_buttons(
             action: ActionTypes::ScrollRight,
             behavior: ClickBehaviors::ClickAndHold,
             active_on: ActiveStates::Game,
-        }
+        },
+        GameItem,
     ));
 }
 
-fn close_on_esc(
+fn deselect_on_esc(
     key_input: Res<ButtonInput<KeyCode>>,
-    mut ui_actions: ResMut<UiActions>,
+    mut deselect: EventWriter<LilGuyDeselected>,
 ) {
     if key_input.just_pressed(KeyCode::Escape) {
-        ui_actions.exiting = true;
+        deselect.send(LilGuyDeselected);
     }
 }
 
@@ -1470,7 +1506,7 @@ fn check_button_clicked(
             FOREGROUND_PORTHOLE_CENTER_POS.distance_squared(cursor_pos) < (FOREGROUND_PORTHOLE_RAD * FOREGROUND_PORTHOLE_RAD);
         
         match btn.action {
-            ActionTypes::Exit => ui_actions.exiting = button_pressed,
+            ActionTypes::ReturnToTitle => if button_pressed { next_game_state.set(GameState::Title) },
             ActionTypes::ScrollLeft => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_left = button_pressed },
             ActionTypes::ScrollRight => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_right = button_pressed },
             ActionTypes::ZoomLilguy(id) => if button_pressed && cursor_in_porthole { _ = on_lilguy_selected.send(LilGuySelected { lilguy_id: id }) },
@@ -1499,25 +1535,14 @@ fn check_button_clicked(
 fn reset_ui_actions(
     actions: &mut UiActions
 ) {
-    actions.exiting = false;
     actions.scrolling_left = false;
     actions.scrolling_right = false;
 }
 
 #[derive(Resource, Default)]
 struct UiActions {
-    exiting: bool,
     scrolling_left: bool,
     scrolling_right: bool,
-}
-
-fn handle_exiting(
-    ui_actions: Res<UiActions>,
-    mut app_exit_events: EventWriter<AppExit>,
-) {
-    if ui_actions.exiting {
-        app_exit_events.send(AppExit::Success);
-    }
 }
 
 #[derive(Resource, Default)]
@@ -1626,6 +1651,7 @@ fn handle_lilguy_selected(
                 ..default()
             },
             SelectionOverlay,
+            GameItem,
         ));
 
         commands.spawn((
@@ -1636,6 +1662,7 @@ fn handle_lilguy_selected(
                 ..default()
             },
             ZoomedInLilGuy,
+            GameItem,
         ));
         
         lilguy_selection.zoomed_lilguy_id = Some(event.lilguy_id);
