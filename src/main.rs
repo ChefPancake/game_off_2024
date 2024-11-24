@@ -8,26 +8,19 @@ use bevy::{
 };
 
 /*
-- [x] Add paging through info screens
-- [x] Add game_state values to clickables in which they are active. keep the one function 
-        alive all game but deactivate unused clickables as we change state
-- [x] get end-game states going
-    - [x] track already selected lilguys, exclude from target
+    to build:
+    cargo build --target wasm32-unknown-unknown --release
+    wasm-bindgen --out-dir .\out\ --target web .\target\wasm32-unknown-unknown\release\game_off_2024.wasm
+*/
 
-- [x] make the lilguys in the background children of it, then remove the BACKGROUND component from them
-    - they'll move w the background for free
-- [x] add a loading bar to the loading screen
-    - just overlaid rects should work
-- [x] Fix clicking behavior
-- [x] Debug scroll buttons not working
-
+/*
 - [ ] audio
     - [ ] buttons
     - [x] music
     - [ ] bubble sound
     - [ ] victory sound
     - [ ] fail sound
-- [ ] fix exit button on title screen
+- [x] fix exit button on title screen
 - [ ] add bubble particles
 */
 
@@ -69,7 +62,7 @@ const BACKGROUND_COLOR: Color = Color::Srgba(Srgba { red: 0.2421875, green: 0.37
 
 const PROGRESS_BAR_BORDER_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8, 150.0);
 const PROGRESS_BAR_INTERNAL_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8 - 50.0, 100.0);
-const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 6 + 1;
+const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 7 + 1;
 const PROGRESS_BAR_BORDER_COLOR: Color = Color::Srgba(Srgba { red: 0.99609375, green: 0.65234375, blue: 0.16796875, alpha: 1.0, });
 const PROGRESS_BAR_INTERNAL_COLOR: Color = Color::Srgba(Srgba { red: 0.0, green: 0.40234375, blue: 0.44921875, alpha: 1.0, });
 
@@ -82,6 +75,11 @@ const MESSAGE_CONTINUE_BUTTON_SIZE: Vec2 = Vec2::new(750.0, 150.0);
 const MESSAGE_EXIT_BUTTON_POS: Vec2 = Vec2::new(370.0, -550.0);
 const MESSAGE_EXIT_BUTTON_SIZE: Vec2 = Vec2::new(150.0, 150.0);
 
+const CURSOR_IMAGE_PATH: &str = "Cursor.png";
+const CURSOR_IMAGE_OFFSET: Vec2 = Vec2::new(20.0, -30.0);
+const CURSOR_IMAGE_SIZE: Vec2 = Vec2::new(131.5, 157.0);
+
+const Z_POS_CURSOR: f32 = 13.0;
 const Z_POS_MESSAGE_BOX: f32 = 12.0;
 const Z_POS_MESSAGE_OVERLAY: f32 = 11.0;
 const Z_POS_FACEPLATE: f32 = 10.0;
@@ -393,6 +391,7 @@ fn main() {
         spawn_send_button,
         spawn_info_buttons,
         spawn_monitors,
+        spawn_cursor,
         reset_submissions,
     ))
     .add_systems(OnExit(GameState::Title), (
@@ -410,8 +409,12 @@ fn main() {
         handle_change_page,
     ).before(check_button_clicked).run_if(in_state(GameState::Game)))
     .add_systems(PostUpdate, (
+        update_cursor,
         handle_scrolling,
     ).after(check_button_clicked).run_if(in_state(GameState::Game)))
+    .add_systems(OnExit(GameState::Game), (
+        reset_cursor_vis,
+    ))
     .add_systems(OnEnter(GameState::NextLevel), (
         remove_target_lilguy,
     ))
@@ -463,6 +466,65 @@ fn main() {
         handle_lilguy_submitted,
     ))
     .run();
+}
+
+#[derive(Component)]
+struct CursorImage;
+
+fn spawn_cursor(
+    images: Res<ImageHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut commands: Commands,
+) {
+    let Some(image) = &images.cursor else { return; };
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(Rectangle::new(CURSOR_IMAGE_SIZE.x, CURSOR_IMAGE_SIZE.y)).into(),
+            material: materials.add(image.clone()),
+            ..default()
+        },
+        CursorImage,
+        GameItem,
+    ));
+}
+
+fn update_cursor(
+    mut cursor: Query<(&mut Transform, &mut Visibility), With<CursorImage>>,
+    mut windows: Query<&mut Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+) {
+    let Ok(mut window) = windows.get_single_mut() else { 
+        return; 
+    };
+    
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    let Ok((camera, camera_transform)) = cameras.get_single() else {
+        return;
+    };
+    let Some(cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
+        return;
+    };
+
+    let cursor_in_porthole =
+        FOREGROUND_PORTHOLE_CENTER_POS.distance_squared(cursor_pos) < (FOREGROUND_PORTHOLE_RAD * FOREGROUND_PORTHOLE_RAD);
+
+    for (mut cursor_trans, mut cursor_vis) in &mut cursor {
+        window.cursor.visible = !cursor_in_porthole;
+        *cursor_vis = if cursor_in_porthole { Visibility::Visible } else { Visibility::Hidden };
+        cursor_trans.translation = (cursor_pos + CURSOR_IMAGE_OFFSET).extend(Z_POS_CURSOR);
+    }
+}
+
+fn reset_cursor_vis(
+    mut windows: Query<&mut Window>,
+) {
+    let Ok(mut window) = windows.get_single_mut() else { 
+        return; 
+    };
+    window.cursor.visible = true;
 }
 
 fn start_playing_music(
@@ -896,6 +958,7 @@ struct ImageHandles {
     win_screen: Option<Handle<Image>>,
     lose_screen: Option<Handle<Image>>,
     next_mission_screen: Option<Handle<Image>>,
+    cursor: Option<Handle<Image>>,
     lilguys_back: [Option<Handle<Image>>; LILGUYS_COUNT],
     lilguys_zoomed: [Option<Handle<Image>>; LILGUYS_COUNT],
     lilguys_info_monitor: [Option<Handle<Image>>; LILGUYS_COUNT],
@@ -912,6 +975,7 @@ fn start_load_images(
     handles.win_screen = Some(assets.load(WIN_SCREEN_IMAGE_PATH));
     handles.lose_screen = Some(assets.load(LOSE_SCREEN_IMAGE_PATH));
     handles.next_mission_screen = Some(assets.load(NEXT_MISSION_SCREEN_IMAGE_PATH));
+    handles.cursor = Some(assets.load(CURSOR_IMAGE_PATH));
 
     for i in 0..LILGUYS_COUNT {
         handles.lilguys_back[i] = Some(assets.load(LILGUYS_BESTIARY[i].bg_image_path));
@@ -946,6 +1010,9 @@ fn monitor_loading(
         current_progress += 1;
     }
     if asset_is_loaded(&assets, &images.lose_screen) {
+        current_progress += 1;
+    }
+    if asset_is_loaded(&assets, &images.cursor) {
         current_progress += 1;
     }
     if asset_is_loaded(&assets, &images.next_mission_screen) {
@@ -1460,31 +1527,32 @@ fn check_button_clicked(
     }
     let just_clicked = input.just_pressed(MouseButton::Left);
 
+    let Ok(window) = windows.get_single() else { 
+        return; 
+    };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    let Ok((camera, camera_transform)) = cameras.get_single() else {
+        return;
+    };
+    let Some(cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
+        return;
+    };
+
+    let current_active_state = 
+        match current_state.get() {
+            GameState::Loading => ActiveStates::None,
+            GameState::Title => ActiveStates::Title,
+            GameState::Game => ActiveStates::Game,
+            GameState::GameWin | GameState::NextLevel | GameState::GameOver => ActiveStates::Message
+        };
+
     for (btn_transform, btn) in &btns {
-        let current_active_state = 
-            match current_state.get() {
-                GameState::Loading => ActiveStates::None,
-                GameState::Title => ActiveStates::Title,
-                GameState::Game => ActiveStates::Game,
-                GameState::GameWin | GameState::NextLevel | GameState::GameOver => ActiveStates::Message
-            };
 
         if (current_active_state as u8 & btn.active_on as u8) == 0 {
             continue;
         }
-
-        let Ok(window) = windows.get_single() else { 
-            return; 
-        };
-        let Some(cursor_pos) = window.cursor_position() else {
-            return;
-        };
-        let Ok((camera, camera_transform)) = cameras.get_single() else {
-            return;
-        };
-        let Some(cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
-            return;
-        };
         
         let (scale, _, _) = btn_transform.to_scale_rotation_translation();
 
