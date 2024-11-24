@@ -1,16 +1,22 @@
 use bevy::{
-    color::palettes::css::{RED, WHITE_SMOKE}, prelude::*, sprite::MaterialMesh2dBundle, window::WindowResized
+    prelude::*, sprite::MaterialMesh2dBundle, window::WindowResized
 };
 
 /*
-- [ ] make the lilguys in the background children of it, then remove the BACKGROUND component from them
+- [x] Add paging through info screens
+- [x] Add game_state values to clickables in which they are active. keep the one function 
+        alive all game but deactivate unused clickables as we change state
+- [x] get end-game states going
+    - [x] track already selected lilguys, exclude from target
+
+- [x] make the lilguys in the background children of it, then remove the BACKGROUND component from them
     - they'll move w the background for free
-- [ ] get end-game states going
 - [x] add a loading bar to the loading screen
     - just overlaid rects should work
-- [ ] add bubble particles
 - [x] Fix clicking behavior
-- [ ] Add paging through info screens
+- [x] Debug scroll buttons not working
+
+- [ ] add bubble particles
 */
 
 const FOREGROUND_TITLE_SCREEN: &str = "TitleScreen.png";
@@ -22,6 +28,9 @@ const FOREGROUND_TOP_MONITOR_IMAGE_SIZE: Vec2 = Vec2::new(1101.0, 1351.0);
 const FOREGROUND_TOP_MONITOR_IMAGE_POS: Vec2 = Vec2::new(-1090.0, 180.0);
 const FOREGROUND_BOTTOM_MONITOR_IMAGE_SIZE: Vec2 = Vec2::new(1101.0, 495.0);
 const FOREGROUND_BOTTOM_MONITOR_IMAGE_POS: Vec2 = Vec2::new(-1090.0, -790.0);
+const FOREGROUND_INFO_PAGELEFT_POS: Vec2 = Vec2::new(FOREGROUND_TOP_MONITOR_IMAGE_POS.x - 450.0, 725.0);
+const FOREGROUND_INFO_PAGERIGHT_POS: Vec2 = Vec2::new(FOREGROUND_TOP_MONITOR_IMAGE_POS.x + 450.0, 725.0);
+const FOREGROUND_INFO_BUTTON_RAD: f32 = 50.0;
 
 const FOREGROUND_CLOSE_BUTTON_POS: Vec2 = Vec2::new(1650.0, 860.0);
 const FOREGROUND_LEFT_BUTTON_POS: Vec2 = Vec2::new(-178.0, -900.0);
@@ -43,26 +52,37 @@ const BACKGROUND_MAX_X: f32 = FOREGROUND_PORTHOLE_CENTER_POS.x + BACKGROUND_IMAG
 const BACKGROUND_SCROLL_MAX_SPEED: f32 = 1200.0;
 const BACKGROUND_SCROLL_ACCEL: f32 = 10000.0;
 const BACKGROUND_SCALE: f32 = (FOREGROUND_PORTHOLE_RAD + BACKGROUND_PADDING_SIZE) * 2.0 / BACKGROUND_IMAGE_SIZE.y;
+const BACKGROUND_OVERLAY_COLOR: Color = Color::Srgba(Srgba { red: 0.0, green: 0.25, blue: 0.37109375, alpha: 0.8 });
+const BACKGROUND_COLOR: Color = Color::Srgba(Srgba { red: 0.2421875, green: 0.375, blue: 0.3671875, alpha: 1.0 });
 
 const PROGRESS_BAR_BORDER_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8, 150.0);
 const PROGRESS_BAR_INTERNAL_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8 - 50.0, 100.0);
 const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 6;
+const PROGRESS_BAR_BORDER_COLOR: Color = Color::Srgba(Srgba { red: 0.99609375, green: 0.65234375, blue: 0.16796875, alpha: 1.0, });
+const PROGRESS_BAR_INTERNAL_COLOR: Color = Color::Srgba(Srgba { red: 0.0, green: 0.40234375, blue: 0.44921875, alpha: 1.0, });
 
 const WIN_SCREEN_IMAGE_PATH: &str = "WinBox.png";
 const LOSE_SCREEN_IMAGE_PATH: &str = "LoseBox.png";
 const NEXT_MISSION_SCREEN_IMAGE_PATH: &str = "NextMissionBox.png";
 const MESSAGE_BOX_IMAGE_SIZE: Vec2 = Vec2::new(1455.0, 1458.0);
+const MESSAGE_CONTINUE_BUTTON_POS: Vec2 = Vec2::new(-125.0, -550.0);
+const MESSAGE_CONTINUE_BUTTON_SIZE: Vec2 = Vec2::new(750.0, 150.0);
+const MESSAGE_EXIT_BUTTON_POS: Vec2 = Vec2::new(370.0, -550.0);
+const MESSAGE_EXIT_BUTTON_SIZE: Vec2 = Vec2::new(150.0, 150.0);
 
+const Z_POS_MESSAGE_BOX: f32 = 12.0;
+const Z_POS_MESSAGE_OVERLAY: f32 = 11.0;
 const Z_POS_FACEPLATE: f32 = 10.0;
 const Z_POS_MONITORS: f32 = 9.0;
+const Z_POS_SELECTED_OVERLAY: f32 = 8.0;
 const Z_POS_BACKGROUND: f32 = 0.0;
 const Z_POS_LIL_GUYS: f32 = 1.0;
-const Z_POS_MESSAGE_BOX: f32 = 11.0;
 
 struct LilGuyInfo {
     spawn_pos: Vec2,
     bg_image_size: Vec2,
     bg_click_area: ClickArea,
+    bg_click_offset: Vec2,
     zoom_image_size: Vec2,
     bg_image_path: &'static str,
     zoom_image_path: &'static str,
@@ -73,9 +93,10 @@ struct LilGuyInfo {
 const LILGUYS_COUNT: usize = 19;
 const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
     LilGuyInfo {
-        spawn_pos: Vec2::new(3000.0, 0.0),
+        spawn_pos: Vec2::new(3678.0, 407.0),
         bg_image_size: Vec2::new(213.0, 147.0),
         bg_click_area: ClickArea::Circular(96.0),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1293.0, 1003.0),
         bg_image_path: "lilguys_back/Abogus.png",
         zoom_image_path: "lilguys_zoomed/Abogus.png",
@@ -83,9 +104,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Abogus.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(2500.0, 300.0),
+        spawn_pos: Vec2::new(5888.0, 428.0),
         bg_image_size: Vec2::new(301.0, 438.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(200.0, 400.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(970.0, 1404.0),
         bg_image_path: "lilguys_back/Biblet.png",
         zoom_image_path: "lilguys_zoomed/Biblet.png",
@@ -93,9 +115,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Biblet.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(2000.0, 100.0),
+        spawn_pos: Vec2::new(-1138.0, 461.0),
         bg_image_size: Vec2::new(373.0, 458.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(300.0, 400.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1046.0, 1288.0),
         bg_image_path: "lilguys_back/Bloober.png",
         zoom_image_path: "lilguys_zoomed/Bloober.png",
@@ -103,9 +126,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Bloober.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(1500.0, -500.0),
+        spawn_pos: Vec2::new(-7325.0, -613.0),
         bg_image_size: Vec2::new(372.0, 289.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(300.0, 225.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1488.0, 868.0),
         bg_image_path: "lilguys_back/ChetTimbo.png",
         zoom_image_path: "lilguys_zoomed/ChetTimbo.png",
@@ -113,9 +137,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/ChetTimbo.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(1000.0, 150.0),
+        spawn_pos: Vec2::new(2763.0, -494.0),
         bg_image_size: Vec2::new(385.0, 373.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(300.0, 300.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1232.0, 1020.0),
         bg_image_path: "lilguys_back/Feetta.png",
         zoom_image_path: "lilguys_zoomed/Feetta.png",
@@ -123,9 +148,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Feetta.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(500.0, -200.0),
+        spawn_pos: Vec2::new(7242.0, 615.0),
         bg_image_size: Vec2::new(526.0, 625.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(475.0, 575.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1187.0, 1402.0),
         bg_image_path: "lilguys_back/Gloober.png",
         zoom_image_path: "lilguys_zoomed/Gloober.png",
@@ -133,9 +159,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Gloober.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(000.0, 500.0),
+        spawn_pos: Vec2::new(-2176.0, -42.0),
         bg_image_size: Vec2::new(254.0, 274.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(200.0, 225.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1108.0, 1374.0),
         bg_image_path: "lilguys_back/Golyp.png",
         zoom_image_path: "lilguys_zoomed/Golyp.png",
@@ -143,9 +170,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Golyp.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-1000.0, 500.0),
+        spawn_pos: Vec2::new(37.0, -298.0),
         bg_image_size: Vec2::new(1558.0, 802.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(1500.0, 700.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1108.0, 1374.0),
         bg_image_path: "lilguys_back/Jerry.png",
         zoom_image_path: "lilguys_zoomed/Jerry.png",
@@ -153,9 +181,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Jerry.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-1500.0, 100.0),
+        spawn_pos: Vec2::new(627.0, 250.0),
         bg_image_size: Vec2::new(519.0, 363.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(450.0, 300.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1411.0, 995.0),
         bg_image_path: "lilguys_back/Jurpils.png",
         zoom_image_path: "lilguys_zoomed/Jurpils.png",
@@ -163,9 +192,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Jurpils.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-2000.0, 100.0),
+        spawn_pos: Vec2::new(-4166.0, 469.0),
         bg_image_size: Vec2::new(285.0, 302.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(225.0, 250.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1320.0, 839.0),
         bg_image_path: "lilguys_back/Keif.png",
         zoom_image_path: "lilguys_zoomed/Keif.png",
@@ -173,9 +203,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Keif.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-2500.0, 100.0),
+        spawn_pos: Vec2::new(-6910.0, -240.0),
         bg_image_size: Vec2::new(348.0, 463.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(300.0, 425.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1077.0, 1327.0),
         bg_image_path: "lilguys_back/Nyada.png",
         zoom_image_path: "lilguys_zoomed/Nyada.png",
@@ -183,20 +214,21 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Nyada.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-3000.0, 100.0),
+        spawn_pos: Vec2::new(6466.0, -337.0),
         bg_image_size: Vec2::new(246.0, 326.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(200.0, 350.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1277.0, 1073.0),
         bg_image_path: "lilguys_back/Ooples.png",
         zoom_image_path: "lilguys_zoomed/Ooples.png",
         info_monitor_image_path: "info_monitors/Ooples.png",
         mission_monitor_image_path: "mission_monitors/Ooples.png",
     },
-
     LilGuyInfo {
-        spawn_pos: Vec2::new(-3500.0, 100.0),
+        spawn_pos: Vec2::new(-3355.0, -46.0),
         bg_image_size: Vec2::new(955.0, 830.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(900.0, 775.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1344.0, 1077.0),
         bg_image_path: "lilguys_back/Patootoo.png",
         zoom_image_path: "lilguys_zoomed/Patootoo.png",
@@ -204,9 +236,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Patootoo.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-4000.0, 100.0),
+        spawn_pos: Vec2::new(-5710.0, -49.0),
         bg_image_size: Vec2::new(858.0, 1437.0),
-        bg_click_area: ClickArea::Rectangular(Vec2::new(800.0, 1375.0)),
+        bg_click_area: ClickArea::Rectangular(Vec2::new(800.0, 800.0)),
+        bg_click_offset: Vec2::new(0.0, 300.0),
         zoom_image_size: Vec2::new(867.0, 1452.0),
         bg_image_path: "lilguys_back/Qwoud.png",
         zoom_image_path: "lilguys_zoomed/Qwoud.png",
@@ -214,9 +247,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Qwoud.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-4500.0, 100.0),
+        spawn_pos: Vec2::new(-5860.0, -506.0),
         bg_image_size: Vec2::new(195.0, 245.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(150.0, 200.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(836.0, 1358.0),
         bg_image_path: "lilguys_back/Snarfblat.png",
         zoom_image_path: "lilguys_zoomed/Snarfblat.png",
@@ -224,9 +258,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Snarfblat.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-5000.0, 100.0),
+        spawn_pos: Vec2::new(4638.0, -415.0),
         bg_image_size: Vec2::new(721.0, 838.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(650.0, 775.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1022.0, 1346.0),
         bg_image_path: "lilguys_back/Squapple.png",
         zoom_image_path: "lilguys_zoomed/Squapple.png",
@@ -234,9 +269,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Squapple.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-5500.0, 100.0),
+        spawn_pos: Vec2::new(-7375.0, 590.0),
         bg_image_size: Vec2::new(338.0, 212.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(275.0, 175.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1348.0, 974.0),
         bg_image_path: "lilguys_back/Thit.png",
         zoom_image_path: "lilguys_zoomed/Thit.png",
@@ -244,9 +280,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Thit.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-6000.0, 100.0),
+        spawn_pos: Vec2::new(1842.0, -217.0),
         bg_image_size: Vec2::new(411.0, 468.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(375.0, 400.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(659.0, 1351.0),
         bg_image_path: "lilguys_back/Toober.png",
         zoom_image_path: "lilguys_zoomed/Toober.png",
@@ -254,9 +291,10 @@ const LILGUYS_BESTIARY: [LilGuyInfo; LILGUYS_COUNT] = [
         mission_monitor_image_path: "mission_monitors/Toober.png",
     },
     LilGuyInfo {
-        spawn_pos: Vec2::new(-6500.0, 100.0),
+        spawn_pos: Vec2::new(7621.0, -416.0),
         bg_image_size: Vec2::new(170.0, 258.0),
         bg_click_area: ClickArea::Rectangular(Vec2::new(125.0, 200.0)),
+        bg_click_offset: Vec2::ZERO,
         zoom_image_size: Vec2::new(1311.0, 837.0),
         bg_image_path: "lilguys_back/Unkie.png",
         zoom_image_path: "lilguys_zoomed/Unkie.png",
@@ -274,6 +312,7 @@ enum GameState {
     Game,
     NextLevel,
     GameOver,
+    GameWin,
 }
 
 fn main() {
@@ -281,11 +320,14 @@ fn main() {
     .add_event::<LilGuySelected>()
     .add_event::<LilGuyDeselected>()
     .add_event::<LilGuySubmitted>()
+    .add_event::<ChangeInfoPage>()
     .insert_resource(UiActions::default())
     .insert_resource(StopScrolling::default())
     .insert_resource(LilGuySelection::default())
     .insert_resource(ImageHandles::default())
     .insert_resource(TargetLilGuy::default())
+    .insert_resource(CurrentInfoPage::default())
+    .insert_resource(CorrectSubmissions::default())
     .add_plugins(DefaultPlugins)
     .insert_state(GameState::default())
     .add_systems(OnEnter(GameState::Loading), (
@@ -314,49 +356,89 @@ fn main() {
         spawn_scroll_buttons,
         spawn_back_button,
         spawn_send_button,
+        spawn_info_buttons,
+        spawn_monitors,
     ))
     .add_systems(OnExit(GameState::Title), (
         spawn_lilguys,
     ).after(spawn_background))
     .add_systems(OnEnter(GameState::Game), (
+        deselect_lilguy,
         choose_target_lilguy,
     ))
     .add_systems(OnEnter(GameState::Game), (
-        spawn_monitors,
+        update_mission_monitor
     ).after(choose_target_lilguy))
     .add_systems(Update, (
         scroll_background,
-    ).run_if(in_state(GameState::Game)))
+        handle_change_page,
+    ).before(check_button_clicked).run_if(in_state(GameState::Game)))
     .add_systems(PostUpdate, (
         handle_scrolling,
-    ).run_if(in_state(GameState::Game)))
+    ).after(check_button_clicked).run_if(in_state(GameState::Game)))
     .add_systems(OnEnter(GameState::NextLevel), (
         remove_target_lilguy,
-        spawn_winscreen,
     ))
+    .add_systems(OnEnter(GameState::NextLevel), (
+        spawn_nextmissionscreen,
+        spawn_nextlevel_message_buttons,
+    ).after(remove_target_lilguy))
     .add_systems(OnExit(GameState::NextLevel), (
         remove_message_box,
-        // re-enable whatever's needed
+        remove_message_buttons,
     ))
+    .add_systems(OnEnter(GameState::GameWin), (
+        spawn_winscreen,
+        spawn_end_message_buttons,
+    ))
+    .add_systems(OnExit(GameState::GameWin), (
+        remove_message_box,
+        remove_message_buttons,
+        remove_lilguys,
+        reset_background_position,
+        reset_submissions,
+    ))
+    .add_systems(OnExit(GameState::GameWin), (
+        spawn_lilguys,
+    ).after(remove_lilguys))
     .add_systems(OnEnter(GameState::GameOver), (
         spawn_losescreen,
+        spawn_end_message_buttons,
     ))
     .add_systems(OnExit(GameState::GameOver), (
         remove_message_box,
+        remove_message_buttons,
+        remove_lilguys,
+        reset_background_position,
+        reset_submissions,
     ))
+    .add_systems(OnExit(GameState::GameOver), (
+        spawn_lilguys,
+    ).after(remove_lilguys))
     .add_systems(Update, (
         resize_foreground,
         close_on_esc,
         check_button_clicked,
     ))
     .add_systems(PostUpdate, (
-        debug_draw_buttons,
+        // debug_draw_buttons,
         handle_exiting,
         handle_lilguy_selected,
         handle_lilguy_deselected,
         handle_lilguy_submitted,
     ))
     .run();
+}
+
+#[derive(Resource, Default)]
+struct CorrectSubmissions {
+    ids: [Option<u8>; 2]
+}
+
+fn reset_submissions(
+    mut submissions: ResMut<CorrectSubmissions>,
+) {
+    *submissions = default();
 }
 
 #[derive(Component)]
@@ -378,6 +460,85 @@ fn spawn_winscreen(
         },
         MessageBox,
     ));
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(Rectangle::new(FOREGROUND_IMAGE_SIZE.x, FOREGROUND_IMAGE_SIZE.y)).into(),
+            material: materials.add(ColorMaterial::from_color(BACKGROUND_OVERLAY_COLOR)),
+            transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_MESSAGE_OVERLAY)),
+            ..default()
+        },
+        MessageOverlay,
+    ));
+}
+
+fn reset_background_position(
+    mut bgs: Query<&mut Transform, With<Background>>,
+) {
+    for mut bg in &mut bgs {
+        bg.translation.x = 0.0;
+    }
+}
+
+fn deselect_lilguy(
+    mut deselect: EventWriter<LilGuyDeselected>,
+) {
+    deselect.send(LilGuyDeselected);
+}
+
+#[derive(Component)]
+struct MessageButton;
+
+fn spawn_end_message_buttons(
+    mut commands: Commands
+) {
+    spawn_message_buttons(&mut commands, ActionTypes::StartGame);
+}
+
+fn spawn_nextlevel_message_buttons(
+    mut commands: Commands
+) {
+    spawn_message_buttons(&mut commands, ActionTypes::StartNextLevel);
+}
+
+fn spawn_message_buttons(
+    commands: &mut Commands,
+    action: ActionTypes
+) {
+    commands.spawn((
+        SpatialBundle {
+            transform: Transform::from_translation(MESSAGE_CONTINUE_BUTTON_POS.extend(0.0)),
+            ..default()
+        },
+        Clickable {
+            area: ClickArea::Rectangular(MESSAGE_CONTINUE_BUTTON_SIZE),
+            action,
+            active_on: ActiveStates::Message,
+            behavior: ClickBehaviors::SingleClick,
+        },
+        MessageButton
+    ));
+    commands.spawn((
+        SpatialBundle {
+            transform: Transform::from_translation(MESSAGE_EXIT_BUTTON_POS.extend(0.0)),
+            ..default()
+        },
+        Clickable {
+            area: ClickArea::Rectangular(MESSAGE_EXIT_BUTTON_SIZE),
+            action: ActionTypes::Exit,
+            active_on: ActiveStates::Message,
+            behavior: ClickBehaviors::SingleClick,
+        },
+        MessageButton
+    ));
+}
+
+fn remove_message_buttons(
+    buttons: Query<Entity, With<MessageButton>>,
+    mut commands: Commands,
+) {
+    for button in &buttons {
+        commands.entity(button).despawn();
+    }
 }
 
 fn spawn_losescreen(
@@ -395,6 +556,15 @@ fn spawn_losescreen(
             ..default()
         },
         MessageBox,
+    ));
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(Rectangle::new(FOREGROUND_IMAGE_SIZE.x, FOREGROUND_IMAGE_SIZE.y)).into(),
+            material: materials.add(ColorMaterial::from_color(BACKGROUND_OVERLAY_COLOR)),
+            transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_MESSAGE_OVERLAY)),
+            ..default()
+        },
+        MessageOverlay,
     ));
 }
 
@@ -414,13 +584,26 @@ fn spawn_nextmissionscreen(
         },
         MessageBox,
     ));
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: meshes.add(Rectangle::new(FOREGROUND_IMAGE_SIZE.x, FOREGROUND_IMAGE_SIZE.y)).into(),
+            material: materials.add(ColorMaterial::from_color(BACKGROUND_OVERLAY_COLOR)),
+            transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_MESSAGE_OVERLAY)),
+            ..default()
+        },
+        MessageOverlay,
+    ));
 }
 
 fn remove_message_box(
     message_boxes: Query<Entity, With<MessageBox>>,
+    overlays: Query<Entity, With<MessageOverlay>>,
     mut commands: Commands,
 ) {
     for entity in &message_boxes {
+        commands.entity(entity).despawn();
+    }
+    for entity in &overlays {
         commands.entity(entity).despawn();
     }
 }
@@ -428,16 +611,14 @@ fn remove_message_box(
 fn remove_target_lilguy(
     lilguys: Query<(Entity, &LilGuy)>,
     target_lilguy: Res<TargetLilGuy>,
-    selected_lilguy: Res<LilGuySelection>,
     mut commands: Commands,
     mut lilguy_deselected: EventWriter<LilGuyDeselected>
 ) {
     let Some(target_lilguy_id) = target_lilguy.target_lilguy_id else { return; };
-    let Some(zoomed_lil_guy_entity) = selected_lilguy.zoomed_lilguy_entity else { return; };
     for (entity, lilguy) in &lilguys {
         if lilguy.lilguy_id == target_lilguy_id {
-            commands.entity(entity).despawn();
-            lilguy_deselected.send(LilGuyDeselected { lilguy_entity: zoomed_lil_guy_entity });
+            commands.entity(entity).despawn_recursive();
+            lilguy_deselected.send(LilGuyDeselected);
         }
     }
 }
@@ -456,7 +637,7 @@ fn spawn_progress_bar(
     commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(Rectangle::new(PROGRESS_BAR_BORDER_SIZE.x, PROGRESS_BAR_BORDER_SIZE.y)).into(),
-            material: materials.add(ColorMaterial::from_color(WHITE_SMOKE)),
+            material: materials.add(ColorMaterial::from_color(PROGRESS_BAR_BORDER_COLOR)),
             ..default()
         },
         ProgressBar {
@@ -468,7 +649,7 @@ fn spawn_progress_bar(
         cmd.spawn(
             MaterialMesh2dBundle {
                 mesh: meshes.add(Rectangle::new(PROGRESS_BAR_INTERNAL_SIZE.x, PROGRESS_BAR_INTERNAL_SIZE.y)).into(),
-                material: materials.add(ColorMaterial::from_color(RED)),
+                material: materials.add(ColorMaterial::from_color(PROGRESS_BAR_INTERNAL_COLOR)),
                 transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_FACEPLATE)),
                 ..default()
             },
@@ -526,6 +707,7 @@ fn spawn_start_button(
             area: ClickArea::Rectangular(FOREGROUND_BOTTOM_MONITOR_IMAGE_SIZE),
             action: ActionTypes::StartGame,
             behavior: ClickBehaviors::SingleClick,
+            active_on: ActiveStates::Title,
         }
     ));
 }
@@ -536,7 +718,7 @@ fn spawn_camera(
     commands.spawn(
         Camera2dBundle {
             camera: Camera {
-                clear_color: ClearColorConfig::Custom(Color::BLACK),
+                clear_color: ClearColorConfig::Custom(BACKGROUND_COLOR),
                 ..default()
             },
             ..default()
@@ -585,22 +767,51 @@ struct LilGuySubmitted {
 }
 
 fn choose_target_lilguy(
+    submissions: Res<CorrectSubmissions>,
     mut target: ResMut<TargetLilGuy>,
 ) {
-    let selected_lilguy: u8 = rand::random::<u8>() % (LILGUYS_COUNT as u8);
-    target.target_lilguy_id = Some(selected_lilguy);
+    loop {
+        let selected_lilguy: u8 = rand::random::<u8>() % (LILGUYS_COUNT as u8);
+
+        if let Some(id) = submissions.ids[0] {
+            if id == selected_lilguy {
+                continue;
+            }
+        }
+
+        if let Some(id) = submissions.ids[1] {
+            if id == selected_lilguy {
+                continue;
+            }
+        }
+
+        target.target_lilguy_id = Some(selected_lilguy);
+        break;
+    }
 }
 
 fn handle_lilguy_submitted(
     mut lilguy_submitted: EventReader<LilGuySubmitted>,
     target: Res<TargetLilGuy>,
+    mut submissions: ResMut<CorrectSubmissions>,
     mut game_state: ResMut<NextState<GameState>>
 ) {
     let Some(target_id) = target.target_lilguy_id else { return; };
 
     for event in lilguy_submitted.read() {
         if event.lilguy_id_guess == target_id {
-            game_state.set(GameState::NextLevel);
+            if submissions.ids[0].is_none() {
+                submissions.ids[0] = Some(target_id);
+                game_state.set(GameState::NextLevel);
+                continue;
+            }
+            if submissions.ids[1].is_none() {
+                submissions.ids[1] = Some(target_id);
+                game_state.set(GameState::NextLevel);
+                continue;
+            }
+            game_state.set(GameState::GameWin);
+
         } else {
             game_state.set(GameState::GameOver);
         }
@@ -701,8 +912,7 @@ fn spawn_border_blocks(
     mut commands: Commands,
 ) {
     let mesh = Rectangle::new(FOREGROUND_IMAGE_SIZE.x, FOREGROUND_IMAGE_SIZE.y);
-    let bg_color = Color::srgb_u8(0x3e, 0x60, 0x5e);
-    let material = materials.add(ColorMaterial::from_color(bg_color));
+    let material = materials.add(ColorMaterial::from_color(BACKGROUND_COLOR));
 
     commands.spawn(
         MaterialMesh2dBundle {
@@ -734,6 +944,7 @@ struct Clickable {
     area: ClickArea,
     action: ActionTypes,
     behavior: ClickBehaviors,
+    active_on: ActiveStates,
 }
 
 #[derive(Clone, Copy)]
@@ -751,7 +962,25 @@ enum ActionTypes {
     UnZoomLilguy,
     SendToLab,
     StartGame,
+    StartNextLevel,
+    InfoPageLeft,
+    InfoPageRight,
 }
+
+#[derive(Clone, Copy, Debug)]
+#[repr(u8)]
+enum ActiveStates {
+    None = 0,
+    Title = 1,
+    Game = 2,
+    Message = 4,
+}
+
+// impl std::ops::BitOr for ActiveStates {
+//     fn bitor(self, rhs: Self) -> Self {
+//         (self as u8 | rhs as u8) as ActiveStates
+//     }
+// }
 
 fn spawn_exit_button(
     mut commands: Commands,
@@ -765,6 +994,7 @@ fn spawn_exit_button(
             area: ClickArea::Rectangular(FOREGROUND_SMALL_BUTTON_AREA),
             action: ActionTypes::Exit,
             behavior: ClickBehaviors::SingleClick,
+            active_on: ActiveStates::Game, // | ActiveStates::Title,
         }
     ));
 }
@@ -781,8 +1011,73 @@ fn spawn_back_button(
             area: ClickArea::Rectangular(FOREGROUND_BACK_BUTTON_AREA),
             action: ActionTypes::UnZoomLilguy,
             behavior: ClickBehaviors::SingleClick,
+            active_on: ActiveStates::Game,
         }
     ));
+}
+
+#[derive(Resource, Default)]
+struct CurrentInfoPage {
+    page_idx: usize,
+}
+
+#[derive(Event)]
+enum ChangeInfoPage {
+    PageLeft,
+    PageRight,
+}
+
+fn handle_change_page(
+    mut page_changed: EventReader<ChangeInfoPage>,
+    images: Res<ImageHandles>,
+    mut current_page: ResMut<CurrentInfoPage>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut info_page_images: Query<&mut Handle<ColorMaterial>, With<InfoMonitor>>,
+) {
+    for event in page_changed.read() {
+        let page_adjustment = match event {
+            ChangeInfoPage::PageLeft => LILGUYS_COUNT - 1,
+            ChangeInfoPage::PageRight => LILGUYS_COUNT + 1,
+        };
+        current_page.page_idx = (current_page.page_idx + page_adjustment) % LILGUYS_COUNT;
+        for mut image in &mut info_page_images {
+            let Some(image_handle) = &images.lilguys_info_monitor[current_page.page_idx] else { continue; };
+            let new_handle = materials.add(image_handle.clone());
+            *image = new_handle;
+        }
+    }
+}
+
+fn spawn_info_buttons(
+    mut commands: Commands,
+) {
+    commands.spawn_batch(
+    [
+        (
+            SpatialBundle {
+            transform: Transform::from_translation(FOREGROUND_INFO_PAGELEFT_POS.extend(0.0)),
+            ..default()
+            },
+            Clickable {
+                area: ClickArea::Circular(FOREGROUND_INFO_BUTTON_RAD),
+                action: ActionTypes::InfoPageLeft,
+                behavior: ClickBehaviors::SingleClick,
+                active_on: ActiveStates::Game,
+            }
+        ),
+        (
+            SpatialBundle {
+                transform: Transform::from_translation(FOREGROUND_INFO_PAGERIGHT_POS.extend(0.0)),
+                ..default()
+            },
+            Clickable {
+                area: ClickArea::Circular(FOREGROUND_INFO_BUTTON_RAD),
+                action: ActionTypes::InfoPageRight,
+                behavior: ClickBehaviors::SingleClick,
+                active_on: ActiveStates::Game,
+            }
+        ),
+    ]);
 }
 
 fn spawn_send_button(
@@ -797,6 +1092,7 @@ fn spawn_send_button(
             area: ClickArea::Rectangular(FOREGROUND_SEND_BUTTON_AREA),
             action: ActionTypes::SendToLab,
             behavior: ClickBehaviors::SingleClick,
+            active_on: ActiveStates::Game,
         }
     ));
 }
@@ -834,14 +1130,31 @@ fn spawn_lilguys(
                 },
                 LilGuy {
                     lilguy_id: i as u8
-                },
-                Clickable {
-                    area: lilguy.bg_click_area,
-                    action: ActionTypes::ZoomLilguy(i as u8),
-                    behavior: ClickBehaviors::SingleClick,
                 }
-            ));
+            )).with_children(|cmd_child| {
+                cmd_child.spawn((
+                    SpatialBundle {
+                        transform: Transform::from_translation(lilguy.bg_click_offset.extend(0.0)),
+                        ..default()
+                    },
+                    Clickable {
+                        area: lilguy.bg_click_area,
+                        action: ActionTypes::ZoomLilguy(i as u8),
+                        behavior: ClickBehaviors::SingleClick,
+                        active_on: ActiveStates::Game,
+                    }
+                ));
+            });
         });
+    }
+}
+
+fn remove_lilguys(
+    lilguys: Query<Entity, With<LilGuy>>,
+    mut commands: Commands,
+) {
+    for lilguy in &lilguys {
+        commands.entity(lilguy).despawn_recursive();
     }
 }
 
@@ -868,37 +1181,58 @@ fn spawn_faceplate(
     ));
 }
 
+#[derive(Component)]
+struct MissionMonitor;
+
+#[derive(Component)]
+struct InfoMonitor;
+
 fn spawn_monitors(
     images: Res<ImageHandles>,
-    target_lilguy: Res<TargetLilGuy>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
 ) {
-    let Some(target_lilguy_id) = target_lilguy.target_lilguy_id else { return; };
     let Some(top_image) = &images.lilguys_info_monitor[0] else { return; };
     let top_material = materials.add(top_image.clone());
 
-    commands.spawn(
+    commands.spawn((
         MaterialMesh2dBundle {
             material: top_material,
             mesh: meshes.add(Rectangle::new(FOREGROUND_TOP_MONITOR_IMAGE_SIZE.x, FOREGROUND_TOP_MONITOR_IMAGE_SIZE.y)).into(),
             transform: Transform::from_translation(FOREGROUND_TOP_MONITOR_IMAGE_POS.extend(Z_POS_MONITORS)),
             ..default()
-        }
-    );
+        },
+        InfoMonitor,
+    ));
 
-    let Some(bottom_image) = &images.lilguys_mission_monitor[target_lilguy_id as usize] else {return; };
+    let Some(bottom_image) = &images.lilguys_mission_monitor[0] else { return; };
     let bottom_material = materials.add(bottom_image.clone());
 
-    commands.spawn(
+    commands.spawn((
         MaterialMesh2dBundle {
             material: bottom_material,
             mesh: meshes.add(Rectangle::new(FOREGROUND_BOTTOM_MONITOR_IMAGE_SIZE.x, FOREGROUND_BOTTOM_MONITOR_IMAGE_SIZE.y)).into(),
             transform: Transform::from_translation(FOREGROUND_BOTTOM_MONITOR_IMAGE_POS.extend(Z_POS_MONITORS)),
             ..default()
-        }
-    );
+        },
+        MissionMonitor,
+    ));
+}
+
+
+fn update_mission_monitor(
+    images: Res<ImageHandles>,
+    target_lilguy: Res<TargetLilGuy>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut mission_monitors: Query<&mut Handle<ColorMaterial>, With<MissionMonitor>>,
+) {
+    let Some(target_lilguy_id) = target_lilguy.target_lilguy_id else { return; };
+    let Some(image) = &images.lilguys_mission_monitor[target_lilguy_id as usize] else { return; };
+
+    for mut mission_monitor in &mut mission_monitors {
+        *mission_monitor = materials.add(image.clone());
+    }
 }
 
 #[derive(Component, Default, Debug)]
@@ -939,6 +1273,7 @@ fn spawn_scroll_buttons(
             area: ClickArea::Rectangular(FOREGROUND_SMALL_BUTTON_AREA),
             action: ActionTypes::ScrollLeft,
             behavior: ClickBehaviors::ClickAndHold,
+            active_on: ActiveStates::Game,
         },
     ));
 
@@ -951,6 +1286,7 @@ fn spawn_scroll_buttons(
             area: ClickArea::Rectangular(FOREGROUND_SMALL_BUTTON_AREA),
             action: ActionTypes::ScrollRight,
             behavior: ClickBehaviors::ClickAndHold,
+            active_on: ActiveStates::Game,
         }
     ));
 }
@@ -1014,7 +1350,9 @@ fn check_button_clicked(
     mut on_lilguy_selected: EventWriter<LilGuySelected>,
     mut on_lilguy_deselected: EventWriter<LilGuyDeselected>,
     mut on_lilguy_submitted: EventWriter<LilGuySubmitted>,
-    mut game_state: ResMut<NextState<GameState>>,
+    mut on_info_page_changed: EventWriter<ChangeInfoPage>,
+    current_state: Res<State<GameState>>,
+    mut next_game_state: ResMut<NextState<GameState>>,
 ) {
     if input.just_released(MouseButton::Left) {
         reset_ui_actions(&mut ui_actions);
@@ -1026,6 +1364,18 @@ fn check_button_clicked(
     let just_clicked = input.just_pressed(MouseButton::Left);
 
     for (btn_transform, btn) in &btns {
+        let current_active_state = 
+            match current_state.get() {
+                GameState::Loading => ActiveStates::None,
+                GameState::Title => ActiveStates::Title,
+                GameState::Game => ActiveStates::Game,
+                GameState::GameWin | GameState::NextLevel | GameState::GameOver => ActiveStates::Message
+            };
+
+        if (current_active_state as u8 & btn.active_on as u8) == 0 {
+            continue;
+        }
+
         let Ok(window) = windows.get_single() else { 
             return; 
         };
@@ -1060,15 +1410,13 @@ fn check_button_clicked(
         
         match btn.action {
             ActionTypes::Exit => ui_actions.exiting = button_pressed,
-            ActionTypes::ScrollLeft => if selection.zoomed_lilguy_entity.is_none() { ui_actions.scrolling_left = button_pressed },
-            ActionTypes::ScrollRight => if selection.zoomed_lilguy_entity.is_none() { ui_actions.scrolling_right = button_pressed },
+            ActionTypes::ScrollLeft => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_left = button_pressed },
+            ActionTypes::ScrollRight => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_right = button_pressed },
             ActionTypes::ZoomLilguy(id) => if button_pressed && cursor_in_porthole { _ = on_lilguy_selected.send(LilGuySelected { lilguy_id: id }) },
             ActionTypes::UnZoomLilguy => 
                 if button_pressed {
-                    if let Some(lilguy) = selection.zoomed_lilguy_entity {
-                        _ = on_lilguy_deselected.send(LilGuyDeselected {
-                            lilguy_entity: lilguy
-                        });
+                    if selection.zoomed_lilguy_id.is_some() {
+                        _ = on_lilguy_deselected.send(LilGuyDeselected);
                     }
                 },
             ActionTypes::SendToLab => 
@@ -1077,10 +1425,12 @@ fn check_button_clicked(
                         _ = on_lilguy_submitted.send(LilGuySubmitted {
                             lilguy_id_guess: lilguy
                         });
-                        // check if the selection matches the target
                     }
                 },
-            ActionTypes::StartGame => if button_pressed { game_state.set(GameState::Game) },
+            ActionTypes::StartGame => if button_pressed { next_game_state.set(GameState::Game) },
+            ActionTypes::StartNextLevel => if button_pressed { next_game_state.set(GameState::Game) },
+            ActionTypes::InfoPageLeft => if button_pressed { _ = on_info_page_changed.send(ChangeInfoPage::PageLeft) },
+            ActionTypes::InfoPageRight => if button_pressed { _ = on_info_page_changed.send(ChangeInfoPage::PageRight) },
         };
     }
 }
@@ -1179,9 +1529,14 @@ struct ZoomedInLilGuy;
 
 #[derive(Resource, Default, Debug)]
 struct LilGuySelection {
-    zoomed_lilguy_entity: Option<Entity>,
     zoomed_lilguy_id: Option<u8>,
 }
+
+#[derive(Component)]
+struct SelectionOverlay;
+
+#[derive(Component)]
+struct MessageOverlay;
 
 fn handle_lilguy_selected(
     mut events: EventReader<LilGuySelected>,
@@ -1191,9 +1546,8 @@ fn handle_lilguy_selected(
     mut stop_scrolling: ResMut<StopScrolling>,
     mut commands: Commands,
     mut lilguy_selection: ResMut<LilGuySelection>,
-
 ) {
-    if lilguy_selection.zoomed_lilguy_entity.is_some() {
+    if lilguy_selection.zoomed_lilguy_id.is_some() {
         return;
     }
 
@@ -1203,7 +1557,17 @@ fn handle_lilguy_selected(
         let material = materials.add(image.clone());
         let size = LILGUYS_BESTIARY[lilguy_id].zoom_image_size;
 
-        let cmd = commands.spawn((
+        commands.spawn((
+            MaterialMesh2dBundle {
+                mesh: meshes.add(Rectangle::new(FOREGROUND_IMAGE_SIZE.x, FOREGROUND_IMAGE_SIZE.y)).into(),
+                material: materials.add(ColorMaterial::from_color(BACKGROUND_OVERLAY_COLOR)),
+                transform: Transform::from_translation(Vec2::ZERO.extend(Z_POS_SELECTED_OVERLAY)),
+                ..default()
+            },
+            SelectionOverlay,
+        ));
+
+        commands.spawn((
             MaterialMesh2dBundle {
                 material,
                 mesh: meshes.add(Rectangle::new(size.x, size.y)).into(),
@@ -1213,44 +1577,47 @@ fn handle_lilguy_selected(
             ZoomedInLilGuy,
         ));
         
-        lilguy_selection.zoomed_lilguy_entity = Some(cmd.id());
         lilguy_selection.zoomed_lilguy_id = Some(event.lilguy_id);
         stop_scrolling.value = true;
     }
 }
 
 #[derive(Event)]
-struct LilGuyDeselected {
-    lilguy_entity: Entity
-}
+struct LilGuyDeselected;
 
 fn handle_lilguy_deselected(
     mut events: EventReader<LilGuyDeselected>,
     mut selection: ResMut<LilGuySelection>,
     mut stop_scrolling: ResMut<StopScrolling>,
+    zoomed_lilguys: Query<Entity, With<ZoomedInLilGuy>>,
+    overlays: Query<Entity, With<SelectionOverlay>>,
     mut commands: Commands
 ) {
-    let had_events = !events.is_empty();
-    for event in events.read() {
-        commands.entity(event.lilguy_entity).despawn();
+    if events.is_empty() {
+        return;
     }
-    if had_events {
-        selection.zoomed_lilguy_entity = None;
-        selection.zoomed_lilguy_id = None;
-        stop_scrolling.value = false;
+    events.clear();
+    
+    for lilguy in &zoomed_lilguys {
+        commands.entity(lilguy).despawn();
+    }
+    selection.zoomed_lilguy_id = None;
+    stop_scrolling.value = false;
+    for overlay in &overlays {
+        commands.entity(overlay).despawn();
     }
 }
 
-fn debug_draw_buttons(
-    mut gizmos: Gizmos,
-    buttons: Query<(&GlobalTransform, &Clickable)>,
-) {
-    for (button_pos, button) in &buttons {
-        // it's assumed that everything except the progress bar is scaled squarely
-        let (scale, _, _) = button_pos.to_scale_rotation_translation();
-        match button.area {
-            ClickArea::Circular(rads) => { gizmos.circle_2d(button_pos.translation().xy(), rads * scale.x, RED); },
-            ClickArea::Rectangular(area) => { gizmos.rect_2d(button_pos.translation().xy(), Rot2::IDENTITY, area * scale.x, RED); },
-        }
-    }
-}
+// fn debug_draw_buttons(
+//     mut gizmos: Gizmos,
+//     buttons: Query<(&GlobalTransform, &Clickable)>,
+// ) {
+//     for (button_pos, button) in &buttons {
+//         // it's assumed that everything except the progress bar is scaled squarely
+//         let (scale, _, _) = button_pos.to_scale_rotation_translation();
+//         match button.area {
+//             ClickArea::Circular(rads) => { gizmos.circle_2d(button_pos.translation().xy(), rads * scale.x, RED); },
+//             ClickArea::Rectangular(area) => { gizmos.rect_2d(button_pos.translation().xy(), Rot2::IDENTITY, area * scale.x, RED); },
+//         }
+//     }
+// }
