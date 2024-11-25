@@ -1,4 +1,5 @@
 use bevy::{
+    audio::Volume, 
     prelude::*, 
     sprite::MaterialMesh2dBundle, 
     window::{
@@ -14,13 +15,6 @@ use bevy::{
 */
 
 /*
-- [ ] audio
-    - [ ] buttons
-    - [x] music
-    - [ ] bubble sound
-    - [ ] victory sound
-    - [ ] fail sound
-- [x] fix exit button on title screen
 - [ ] add bubble particles
 */
 
@@ -62,7 +56,7 @@ const BACKGROUND_COLOR: Color = Color::Srgba(Srgba { red: 0.2421875, green: 0.37
 
 const PROGRESS_BAR_BORDER_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8, 150.0);
 const PROGRESS_BAR_INTERNAL_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8 - 50.0, 100.0);
-const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 7 + 1;
+const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 7 + 2;
 const PROGRESS_BAR_BORDER_COLOR: Color = Color::Srgba(Srgba { red: 0.99609375, green: 0.65234375, blue: 0.16796875, alpha: 1.0, });
 const PROGRESS_BAR_INTERNAL_COLOR: Color = Color::Srgba(Srgba { red: 0.0, green: 0.40234375, blue: 0.44921875, alpha: 1.0, });
 
@@ -89,6 +83,8 @@ const Z_POS_BACKGROUND: f32 = 0.0;
 const Z_POS_LIL_GUYS: f32 = 1.0;
 
 const MUSIC_AUDIO_PATH: &str = "audio/BackingTrack.downsampled.wav";
+const CLICK_SOUND_PATH: &str = "audio/ClickSound.wav";
+const CLICK_SOUND_VOLUME: f32 = 0.6;
 
 struct LilGuyInfo {
     spawn_pos: Vec2,
@@ -333,6 +329,7 @@ fn main() {
     .add_event::<LilGuyDeselected>()
     .add_event::<LilGuySubmitted>()
     .add_event::<ChangeInfoPage>()
+    .add_event::<ButtonClicked>()
     .insert_resource(UiActions::default())
     .insert_resource(StopScrolling::default())
     .insert_resource(LilGuySelection::default())
@@ -464,6 +461,7 @@ fn main() {
         handle_lilguy_selected,
         handle_lilguy_deselected,
         handle_lilguy_submitted,
+        handle_button_clicked,
     ))
     .run();
 }
@@ -941,6 +939,7 @@ fn handle_lilguy_submitted(
 #[derive(Resource, Default)]
 struct AudioHandles {
     bg_music: Option<Handle<AudioSource>>,
+    click: Option<Handle<AudioSource>>,
 }
 
 fn start_load_audio(
@@ -948,6 +947,7 @@ fn start_load_audio(
     mut audio_handles: ResMut<AudioHandles>,
 ) {
     audio_handles.bg_music = Some(asset_server.load(MUSIC_AUDIO_PATH));
+    audio_handles.click = Some(asset_server.load(CLICK_SOUND_PATH));
 }
 
 #[derive(Resource, Default)]
@@ -995,6 +995,9 @@ fn monitor_loading(
     let mut current_progress = 0;
 
     if asset_is_loaded(&assets, &audio.bg_music) {
+        current_progress += 1;
+    }
+    if asset_is_loaded(&assets, &audio.click) {
         current_progress += 1;
     }
     if asset_is_loaded(&assets, &images.title_screen) {
@@ -1458,9 +1461,11 @@ fn spawn_scroll_buttons(
 fn deselect_on_esc(
     key_input: Res<ButtonInput<KeyCode>>,
     mut deselect: EventWriter<LilGuyDeselected>,
+    mut on_click: EventWriter<ButtonClicked>,
 ) {
     if key_input.just_pressed(KeyCode::Escape) {
         deselect.send(LilGuyDeselected);
+        on_click.send_default();
     }
 }
 
@@ -1491,18 +1496,26 @@ fn resize_foreground(
 fn scroll_background(
     input: Res<ButtonInput<KeyCode>>,
     mut ui_actions: ResMut<UiActions>,
+    mut on_click: EventWriter<ButtonClicked>,
 ) {
     const LEFT_KEYS: [KeyCode; 2] = [KeyCode::KeyA, KeyCode::ArrowLeft];
     const RIGHT_KEYS: [KeyCode; 2] = [KeyCode::KeyD, KeyCode::ArrowRight];
 
     ui_actions.scrolling_left = input.any_pressed(LEFT_KEYS);
     ui_actions.scrolling_right = input.any_pressed(RIGHT_KEYS);
+
+    if input.any_just_pressed(LEFT_KEYS) || input.any_just_pressed(RIGHT_KEYS) {
+        on_click.send_default();
+    }
 }
 
 #[derive(Event)]
 struct LilGuySelected {
     lilguy_id: u8
 }
+
+#[derive(Event, Default)]
+struct ButtonClicked;
 
 fn check_button_clicked(
     input: Res<ButtonInput<MouseButton>>,
@@ -1517,6 +1530,7 @@ fn check_button_clicked(
     mut on_info_page_changed: EventWriter<ChangeInfoPage>,
     current_state: Res<State<GameState>>,
     mut next_game_state: ResMut<NextState<GameState>>,
+    mut on_click: EventWriter<ButtonClicked>,
 ) {
     if input.just_released(MouseButton::Left) {
         reset_ui_actions(&mut ui_actions);
@@ -1573,30 +1587,44 @@ fn check_button_clicked(
         let cursor_in_porthole =
             FOREGROUND_PORTHOLE_CENTER_POS.distance_squared(cursor_pos) < (FOREGROUND_PORTHOLE_RAD * FOREGROUND_PORTHOLE_RAD);
         
-        match btn.action {
-            ActionTypes::ReturnToTitle => if button_pressed { next_game_state.set(GameState::Title) },
-            ActionTypes::ScrollLeft => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_left = button_pressed },
-            ActionTypes::ScrollRight => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_right = button_pressed },
-            ActionTypes::ZoomLilguy(id) => if button_pressed && cursor_in_porthole { _ = on_lilguy_selected.send(LilGuySelected { lilguy_id: id }) },
-            ActionTypes::UnZoomLilguy => 
-                if button_pressed {
-                    if selection.zoomed_lilguy_id.is_some() {
-                        _ = on_lilguy_deselected.send(LilGuyDeselected);
-                    }
-                },
-            ActionTypes::SendToLab => 
-                if button_pressed {
-                    if let Some(lilguy) = selection.zoomed_lilguy_id {
-                        _ = on_lilguy_submitted.send(LilGuySubmitted {
-                            lilguy_id_guess: lilguy
-                        });
-                    }
-                },
-            ActionTypes::StartGame => if button_pressed { next_game_state.set(GameState::Game) },
-            ActionTypes::StartNextLevel => if button_pressed { next_game_state.set(GameState::Game) },
-            ActionTypes::InfoPageLeft => if button_pressed { _ = on_info_page_changed.send(ChangeInfoPage::PageLeft) },
-            ActionTypes::InfoPageRight => if button_pressed { _ = on_info_page_changed.send(ChangeInfoPage::PageRight) },
-        };
+        let button_clicked = 
+            match btn.action {
+                ActionTypes::ReturnToTitle => if button_pressed { next_game_state.set(GameState::Title); true } else { false },
+                ActionTypes::ScrollLeft => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_left = button_pressed; true } else { false },
+                ActionTypes::ScrollRight => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_right = button_pressed; true } else { false },
+                ActionTypes::ZoomLilguy(id) => if button_pressed && cursor_in_porthole { _ = on_lilguy_selected.send(LilGuySelected { lilguy_id: id }); true } else { false },
+                ActionTypes::UnZoomLilguy => 
+                    if button_pressed {
+                        if selection.zoomed_lilguy_id.is_some() {
+                            _ = on_lilguy_deselected.send(LilGuyDeselected);
+                            true
+                        } else { 
+                            false 
+                        }
+                    } else {
+                        false
+                    },
+                ActionTypes::SendToLab => 
+                    if button_pressed {
+                        if let Some(lilguy) = selection.zoomed_lilguy_id {
+                            _ = on_lilguy_submitted.send(LilGuySubmitted {
+                                lilguy_id_guess: lilguy
+                            });
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    },
+                ActionTypes::StartGame => if button_pressed { next_game_state.set(GameState::Game); true } else { false },
+                ActionTypes::StartNextLevel => if button_pressed { next_game_state.set(GameState::Game); true } else { false },
+                ActionTypes::InfoPageLeft => if button_pressed { _ = on_info_page_changed.send(ChangeInfoPage::PageLeft); true } else { false },
+                ActionTypes::InfoPageRight => if button_pressed { _ = on_info_page_changed.send(ChangeInfoPage::PageRight); true } else { false },
+            };
+        if button_clicked && just_clicked {
+            on_click.send_default();
+        }
     }
 }
 
@@ -1736,6 +1764,24 @@ fn handle_lilguy_selected(
         lilguy_selection.zoomed_lilguy_id = Some(event.lilguy_id);
         stop_scrolling.value = true;
     }
+}
+
+fn handle_button_clicked(
+    mut clicked: EventReader<ButtonClicked>,
+    audio: Res<AudioHandles>,
+    mut commands: Commands,
+) {
+    if clicked.is_empty() {
+        return;
+    }
+    clicked.clear();
+
+    let Some(click) = &audio.click else { return; };
+    commands.spawn(AudioBundle {
+        source: click.clone(),
+        settings: PlaybackSettings::DESPAWN.with_volume(Volume::new(CLICK_SOUND_VOLUME)),
+        ..default()
+    });
 }
 
 #[derive(Event)]
