@@ -3,8 +3,7 @@ use bevy::{
     prelude::*, 
     sprite::MaterialMesh2dBundle, 
     window::{
-        WindowResized, 
-        WindowResolution
+        WindowMode, WindowResized, WindowResolution
     }
 };
 
@@ -18,8 +17,11 @@ use bevy::{
 - [ ] add bubble particles
 */
 
+const WINDOW_RESOLUTION: Vec2 = Vec2::new(859.0, 483.0);
+
 const FOREGROUND_TITLE_SCREEN: &str = "TitleScreen.png";
 const FOREGROUND_IMAGE_PATH: &str = "FrontPanel.png";
+const FOREGROUND_NO_BUTTONS_IMAGE_PATH: &str = "FrontPanel_nobuttons.png";
 const FOREGROUND_IMAGE_SIZE: Vec2 = Vec2::new(3641.0, 2048.0);
 const FOREGROUND_ASPECT_RATIO: f32 = FOREGROUND_IMAGE_SIZE.x / FOREGROUND_IMAGE_SIZE.y;
 
@@ -56,7 +58,7 @@ const BACKGROUND_COLOR: Color = Color::Srgba(Srgba { red: 0.2421875, green: 0.37
 
 const PROGRESS_BAR_BORDER_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8, 150.0);
 const PROGRESS_BAR_INTERNAL_SIZE: Vec2 = Vec2::new(FOREGROUND_IMAGE_SIZE.x * 0.8 - 50.0, 100.0);
-const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 7 + 2;
+const PROGRESS_BAR_TOTAL_UNITS: usize = LILGUYS_COUNT * 4 + 8 + 2;
 const PROGRESS_BAR_BORDER_COLOR: Color = Color::Srgba(Srgba { red: 0.99609375, green: 0.65234375, blue: 0.16796875, alpha: 1.0, });
 const PROGRESS_BAR_INTERNAL_COLOR: Color = Color::Srgba(Srgba { red: 0.0, green: 0.40234375, blue: 0.44921875, alpha: 1.0, });
 
@@ -344,7 +346,7 @@ fn main() {
                 primary_window: Some(Window {
                     title: "KEEP YOUR SEA CRITS".to_string(),
                     fit_canvas_to_parent: true,
-                    resolution: WindowResolution::new(859.0, 643.0),
+                    resolution: WindowResolution::new(WINDOW_RESOLUTION.x, WINDOW_RESOLUTION.y),
                     ..default()
                 }),
                 ..default()
@@ -408,6 +410,7 @@ fn main() {
     .add_systems(PostUpdate, (
         update_cursor,
         handle_scrolling,
+        update_faceplate,
     ).after(check_button_clicked).run_if(in_state(GameState::Game)))
     .add_systems(OnExit(GameState::Game), (
         reset_cursor_vis,
@@ -455,6 +458,7 @@ fn main() {
         resize_foreground,
         deselect_on_esc,
         check_button_clicked,
+        toggle_fullscreen,
     ))
     .add_systems(PostUpdate, (
         // debug_draw_buttons,
@@ -465,6 +469,23 @@ fn main() {
     ))
     .run();
 }
+
+fn toggle_fullscreen(
+    key_input: Res<ButtonInput<KeyCode>>,
+    mut windows: Query<&mut Window>,
+) {
+    let alts = [ KeyCode::AltLeft, KeyCode::AltRight ];
+    if key_input.just_pressed(KeyCode::Enter) && key_input.any_pressed(alts) {
+        for mut window in &mut windows {
+            window.mode = 
+                match window.mode {
+                    WindowMode::BorderlessFullscreen => WindowMode::Windowed,
+                    _ => WindowMode::BorderlessFullscreen,
+                };
+        }
+    }
+}
+
 
 #[derive(Component)]
 struct CursorImage;
@@ -954,6 +975,7 @@ fn start_load_audio(
 struct ImageHandles {
     title_screen: Option<Handle<Image>>,
     foreground: Option<Handle<Image>>,
+    foreground_no_buttons: Option<Handle<Image>>,
     background: Option<Handle<Image>>,
     win_screen: Option<Handle<Image>>,
     lose_screen: Option<Handle<Image>>,
@@ -971,6 +993,7 @@ fn start_load_images(
 ) {
     handles.title_screen = Some(assets.load(FOREGROUND_TITLE_SCREEN));
     handles.foreground = Some(assets.load(FOREGROUND_IMAGE_PATH));
+    handles.foreground_no_buttons = Some(assets.load(FOREGROUND_NO_BUTTONS_IMAGE_PATH));
     handles.background = Some(assets.load(BACKGROUND_IMAGE_PATH));
     handles.win_screen = Some(assets.load(WIN_SCREEN_IMAGE_PATH));
     handles.lose_screen = Some(assets.load(LOSE_SCREEN_IMAGE_PATH));
@@ -1004,6 +1027,9 @@ fn monitor_loading(
         current_progress += 1;
     }
     if asset_is_loaded(&assets, &images.foreground) {
+        current_progress += 1;
+    }
+    if asset_is_loaded(&assets, &images.foreground_no_buttons) {
         current_progress += 1;
     }
     if asset_is_loaded(&assets, &images.background) {
@@ -1341,6 +1367,40 @@ fn spawn_faceplate(
         Faceplate,
         GameItem,
     ));
+}
+
+fn update_faceplate(
+    mut on_select: EventReader<LilGuySelected>,
+    mut on_deselect: EventReader<LilGuyDeselected>,
+    mut on_submit: EventReader<LilGuyDeselected>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    images: Res<ImageHandles>,
+    mut faceplates: Query<&mut Handle<ColorMaterial>, With<Faceplate>>,
+) {
+    let selected = !on_select.is_empty();
+    on_select.clear();
+    let deselected = !on_deselect.is_empty();
+    on_deselect.clear();
+    let submitted = !on_submit.is_empty();
+    on_submit.clear();
+
+    let removing_buttons = deselected || submitted;
+    let adding_buttons = selected;
+    if adding_buttons == removing_buttons {
+        return;
+    }
+
+    let image = 
+        if adding_buttons {
+            &images.foreground
+        } else {
+            &images.foreground_no_buttons
+        };
+
+    let Some(image) = image else { return; };
+    for mut faceplate in &mut faceplates {
+        *faceplate = materials.add(image.clone());
+    }
 }
 
 #[derive(Component)]
