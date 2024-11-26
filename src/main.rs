@@ -20,7 +20,7 @@ use bevy::{
 const WINDOW_RESOLUTION: Vec2 = Vec2::new(859.0, 483.0);
 
 const FOREGROUND_TITLE_SCREEN: &str = "TitleScreen.png";
-const FOREGROUND_IMAGE_PATH: &str = "FrontPanel.png";
+const FOREGROUND_IMAGE_PATH: &str = "FrontPanel_noarrows.png";
 const FOREGROUND_NO_BUTTONS_IMAGE_PATH: &str = "FrontPanel_nobuttons.png";
 const FOREGROUND_IMAGE_SIZE: Vec2 = Vec2::new(3641.0, 2048.0);
 const FOREGROUND_ASPECT_RATIO: f32 = FOREGROUND_IMAGE_SIZE.x / FOREGROUND_IMAGE_SIZE.y;
@@ -1650,8 +1650,8 @@ fn check_button_clicked(
         let button_clicked = 
             match btn.action {
                 ActionTypes::ReturnToTitle => if button_pressed { next_game_state.set(GameState::Title); true } else { false },
-                ActionTypes::ScrollLeft => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_left = button_pressed; true } else { false },
-                ActionTypes::ScrollRight => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_right = button_pressed; true } else { false },
+                ActionTypes::ScrollLeft => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_left = button_pressed; button_pressed } else { false },
+                ActionTypes::ScrollRight => if selection.zoomed_lilguy_id.is_none() { ui_actions.scrolling_right = button_pressed; button_pressed } else { false },
                 ActionTypes::ZoomLilguy(id) => if button_pressed && cursor_in_porthole { _ = on_lilguy_selected.send(LilGuySelected { lilguy_id: id }); true } else { false },
                 ActionTypes::UnZoomLilguy => 
                     if button_pressed {
