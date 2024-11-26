@@ -1,8 +1,5 @@
 use bevy::{
-    audio::Volume, 
-    prelude::*, 
-    sprite::MaterialMesh2dBundle, 
-    window::{
+    audio::Volume, input::mouse::MouseMotion, prelude::*, sprite::MaterialMesh2dBundle, window::{
         WindowMode, WindowResized, WindowResolution
     }
 };
@@ -332,6 +329,7 @@ fn main() {
     .add_event::<LilGuySubmitted>()
     .add_event::<ChangeInfoPage>()
     .add_event::<ButtonClicked>()
+    .insert_resource(LastInputType::Mouse)
     .insert_resource(UiActions::default())
     .insert_resource(StopScrolling::default())
     .insert_resource(LilGuySelection::default())
@@ -466,6 +464,7 @@ fn main() {
         handle_lilguy_deselected,
         handle_lilguy_submitted,
         handle_button_clicked,
+        handle_mouse_motion,
     ))
     .run();
 }
@@ -508,15 +507,43 @@ fn spawn_cursor(
     ));
 }
 
+#[derive(Resource, Eq, PartialEq)]
+enum LastInputType {
+    Mouse,
+    Touch,
+}
+
+fn handle_mouse_motion(
+    mut last_input: ResMut<LastInputType>,
+    mut mouse_motion: EventReader<MouseMotion>,
+    mut cursor: Query<&mut Visibility, With<CursorImage>>,
+) {
+    if mouse_motion.is_empty() {
+        return;
+    }
+    mouse_motion.clear();
+    *last_input = LastInputType::Mouse;
+}
+
 fn update_cursor(
+    mut last_input: ResMut<LastInputType>,
+    touch_input: Res<Touches>,
     mut cursor: Query<(&mut Transform, &mut Visibility), With<CursorImage>>,
     mut windows: Query<&mut Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
 ) {
+    // if there's any touch input, hide everything
+    if touch_input.any_just_pressed() || *last_input == LastInputType::Touch {
+        *last_input = LastInputType::Touch;
+        for (_, mut cursor_vis) in &mut cursor {
+            *cursor_vis = Visibility::Hidden;
+        }
+        return;
+    }
+
     let Ok(mut window) = windows.get_single_mut() else { 
         return; 
-    };
-    
+    }; 
     let Some(cursor_pos) = window.cursor_position() else {
         return;
     };
@@ -1578,7 +1605,8 @@ struct LilGuySelected {
 struct ButtonClicked;
 
 fn check_button_clicked(
-    input: Res<ButtonInput<MouseButton>>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    touch_input: Res<Touches>,
     windows: Query<&Window>,
     btns: Query<(&GlobalTransform, &Clickable)>,
     cameras: Query<(&Camera, &GlobalTransform)>,
@@ -1592,21 +1620,34 @@ fn check_button_clicked(
     mut next_game_state: ResMut<NextState<GameState>>,
     mut on_click: EventWriter<ButtonClicked>,
 ) {
-    if input.just_released(MouseButton::Left) {
+    if mouse_input.just_released(MouseButton::Left) || touch_input.just_released(0) {
         reset_ui_actions(&mut ui_actions);
         return;
     }
-    if !input.pressed(MouseButton::Left) {
+    let mouse_just_presssed = mouse_input.just_pressed(MouseButton::Left);
+    let touch_just_pressed = touch_input.just_pressed(0);
+
+    let just_clicked = mouse_just_presssed || touch_just_pressed;
+    
+    let mouse_held_down = mouse_input.pressed(MouseButton::Left);
+    let touch_held_down = touch_input.get_pressed(0).is_some();
+
+    if !mouse_held_down && !touch_held_down {
         return;
     }
-    let just_clicked = input.just_pressed(MouseButton::Left);
-
+    
     let Ok(window) = windows.get_single() else { 
         return; 
     };
-    let Some(cursor_pos) = window.cursor_position() else {
-        return;
-    };
+    let cursor_pos = 
+        if window.cursor_position().is_some() {
+            window.cursor_position().unwrap()
+        } else if touch_input.get_pressed(0).is_some() {
+            touch_input.get_pressed(0).unwrap().start_position()
+        } else {
+            return;
+        };
+
     let Ok((camera, camera_transform)) = cameras.get_single() else {
         return;
     };
